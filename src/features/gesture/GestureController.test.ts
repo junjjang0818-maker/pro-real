@@ -157,6 +157,17 @@ describe('GestureController — 배터리/발열 스로틀링', () => {
   });
 });
 
+describe('GestureController — updateConfig (live tuning)', () => {
+  it('a tightened framesForConfirm takes effect on the next attempt', async () => {
+    const { sched, cam, controller } = setup();
+    controller.updateConfig({ framesForConfirm: 3, holdDurationMs: 200 });
+    expect(controller.getConfig().framesForConfirm).toBe(3);
+    const p = controller.attempt('count');
+    feed(sched, cam, fingersUp(2), [0, 90, 180, 260]); // 4 frames, 260ms > 200
+    expect(await p).toMatchObject({ outcome: 'confirmed', value: 2 });
+  });
+});
+
 describe('GestureController — camera lifecycle', () => {
   it('releases the camera on every terminal outcome', async () => {
     const ok = setup();

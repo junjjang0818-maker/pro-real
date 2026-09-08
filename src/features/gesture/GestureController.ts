@@ -91,6 +91,16 @@ export class GestureController {
     return this.state;
   }
 
+  getConfig(): Readonly<GestureConfig> {
+    return this.cfg;
+  }
+
+  /** Live-tune the misrecognition-prevention parameters (confidence, hold,
+   *  frames, cooldown, burst, ...). Takes effect on the next attempt. */
+  updateConfig(patch: Partial<GestureConfig>): void {
+    Object.assign(this.cfg, patch);
+  }
+
   isDegraded(): boolean {
     return this.degradedLatched;
   }

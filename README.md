@@ -5,15 +5,20 @@
 
 ## 현재 상태
 
-**MVP 코어 로직 + 2~6단계 핵심 알고리즘 구현 및 테스트 완료.** 네이티브 연동부
-(카메라 프레임 프로세서, 백그라운드 알림)는 인터페이스 + stub 로 스캐폴딩되어
-있으며 macOS/Android SDK 환경에서 실제 어댑터로 교체하면 동작한다.
+**MVP 코어 로직 + 2~6단계 핵심 알고리즘 구현·테스트 완료 + 브라우저에서 도는 전체 UI 웹 데모.**
+iOS/Android 네이티브 연동부(FGS 알림, Live Activity, monotonic clock 브리지)는
+인터페이스 + stub 이며 macOS/Android SDK 환경에서 실제 어댑터로 교체하면 동작한다.
 
 ```bash
-npm install        # 테스트 도구 (vitest, typescript)
-npm test           # 20 파일 / 168 테스트
+npm install
+npm run web        # http://localhost:5173 — 타이머·출석·분석·제스처(웹캠+MediaPipe)·뱃지 전부 동작
+npm test           # 20 파일 / 170 테스트
 npm run typecheck  # tsc --noEmit (strict)
+npm run build      # dist/ 정적 번들
 ```
+
+웹 데모는 네이티브의 `GestureController`·`SessionStore`·파생 로직을 **그대로** 사용한다
+(웹 전용 어댑터만 주입). 자세한 내용: [docs/08-web-demo.md](docs/08-web-demo.md).
 
 ## 설계 문서
 
@@ -26,6 +31,7 @@ npm run typecheck  # tsc --noEmit (strict)
 | [docs/05-analysis-motivation.md](docs/05-analysis-motivation.md) | 3단계: 확장 제스처 + AI 분석 + 동기부여 |
 | [docs/06-gamification.md](docs/06-gamification.md) | 4단계: 뱃지 + 알림 스로틀 + 공유 카드 |
 | [docs/07-risks-and-tests.md](docs/07-risks-and-tests.md) | 오류 케이스 8종 ↔ 테스트 매핑, 단계별 리스크 |
+| [docs/08-web-demo.md](docs/08-web-demo.md) | 웹 데모 실행법, 웹에서 동작/차이 나는 부분 |
 | [docs/privacy-policy-draft.md](docs/privacy-policy-draft.md) | 전송 데이터 항목 명시 |
 
 ## 아키텍처 한 눈에

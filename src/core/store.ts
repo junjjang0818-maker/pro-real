@@ -82,6 +82,17 @@ export class SessionStore {
     return () => this.listeners.delete(fn);
   }
 
+  /** Live-edit store config (daily goal, freeze rules, recovery policy). Derived
+   *  views recompute on next read, so this stays consistent with the SoT. */
+  updateConfig(patch: Partial<StoreConfig>): void {
+    Object.assign(this.config, patch);
+    this.emit();
+  }
+
+  getConfig(): Readonly<StoreConfig> {
+    return this.config;
+  }
+
   private emit(): void {
     for (const l of [...this.listeners]) l();
   }
@@ -170,6 +181,13 @@ export class SessionStore {
   // ── derivations (computed on read from `allSessions()`) ───────────────
   private allSessions(): Session[] {
     // active session is already inside `this.sessions` once created
+    return this.sessions;
+  }
+
+  /** The single source of truth — the full session list. Read-only; every
+   *  derived view (attendance, streak, stats, badges, AI facts) is computed
+   *  from exactly this. */
+  getSessions(): readonly Session[] {
     return this.sessions;
   }
 
