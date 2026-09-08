@@ -1,0 +1,12 @@
+node_modules/
+coverage/
+dist/
+.expo/
+*.log
+.DS_Store
+
+# native build output (3단계 이후 생성)
+android/
+ios/
+!android/.gitkeep
+!ios/.gitkeep

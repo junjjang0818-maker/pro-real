@@ -1,0 +1,44 @@
+{
+  "name": "gesture-study-timer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "제스처 기반 학습 타이머 앱 - 단일 진실 소스 코어 + Expo/RN 앱",
+  "main": "index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  },
+  "comment_app_dependencies": "아래 appDependencies 는 3단계 이후 macOS/Android SDK 가 있는 개발 머신에서 실제 앱을 빌드할 때 dependencies 로 승격합니다. Windows CI/로직 테스트 환경에서는 설치하지 않습니다. 자세한 이유는 docs/03-mvp.md 참고.",
+  "appDependencies": {
+    "expo": "~54.0.0",
+    "react": "19.1.0",
+    "react-native": "0.81.4",
+    "expo-dev-client": "~6.0.0",
+    "expo-router": "~6.0.0",
+    "expo-haptics": "~15.0.0",
+    "expo-notifications": "~0.32.0",
+    "expo-keep-awake": "~15.0.0",
+    "react-native-vision-camera": "^4.6.4",
+    "react-native-worklets-core": "^1.5.0",
+    "react-native-mediapipe": "^0.5.1",
+    "react-native-fast-tflite": "^1.6.1",
+    "react-native-mmkv": "^3.1.0",
+    "@op-engineering/op-sqlite": "^11.2.0",
+    "@notifee/react-native": "^9.1.8",
+    "zustand": "^5.0.2",
+    "react-native-view-shot": "~4.0.3",
+    "@react-native-voice/voice": "^3.2.4",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true
+  }
+}
