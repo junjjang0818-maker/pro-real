@@ -20,6 +20,15 @@ export function mmss(ms: number): string {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/** mm:ss.cs — seconds to two decimal places (centiseconds). */
+export function mmssCs(ms: number): string {
+  const t = Math.max(0, ms);
+  const m = Math.floor(t / 60000);
+  const s = Math.floor((t % 60000) / 1000);
+  const cs = Math.floor((t % 1000) / 10);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+}
+
 export function hm(ms: number): string {
   const m = Math.max(0, Math.round(ms / 60000));
   const h = Math.floor(m / 60);

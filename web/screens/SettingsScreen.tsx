@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { app, getSettings, updateSettings } from '../appInstance';
-import { Card, NumberRow, Field } from '../ui';
+import { Card, NumberRow, Field, Toggle } from '../ui';
 import { DEFAULT_GESTURE_CONFIG } from '@app/features/gesture/gestureConfig';
 import { getAnalysisEndpoint, setAnalysisEndpoint } from '../analysis';
 import { seedDemoData, resetDemoData } from '../seed';
@@ -23,6 +23,16 @@ export function SettingsScreen() {
       </Card>
 
       <Card title="제스처 인식 (오인식 방지 파라미터)">
+        <div style={{ marginBottom: 10 }}>
+          <Toggle
+            label="제스처 시뮬레이션 (웹캠 없이 데모/테스트)"
+            checked={s.gestureSim}
+            onChange={(b) => updateSettings({ gestureSim: b })}
+          />
+          <p className="muted small" style={{ margin: '4px 0 0' }}>
+            켜면 카메라 대신 합성 프레임을 주입해 동일한 확정 로직(신뢰도·유지시간·프레임수·쿨다운)을 통과시킵니다.
+          </p>
+        </div>
         <NumberRow label="최소 신뢰도" min={0.4} max={0.95} step={0.05} value={g.minConfidence} onChange={(v) => setG({ minConfidence: v })} />
         <NumberRow label="유지 시간" suffix="ms" min={200} max={1500} step={50} value={g.holdDurationMs} onChange={(v) => setG({ holdDurationMs: v })} />
         <NumberRow label="확정 프레임 수" min={2} max={12} value={g.framesForConfirm} onChange={(v) => setG({ framesForConfirm: v })} />

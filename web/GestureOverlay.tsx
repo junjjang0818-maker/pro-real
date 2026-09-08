@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { app, cameraProxy } from './appInstance';
 import { countExtendedFingers } from '@app/features/gesture/fingerCounting';
+import { fingersUp, synthHand } from '@app/features/gesture/synthetic';
 import type { AttemptKind, AttemptResult, GestureState } from '@app/features/gesture/GestureController';
 
 const PROMPT: Record<AttemptKind, string> = {
@@ -14,6 +15,8 @@ export function GestureOverlay({ kind, onResult }: { kind: AttemptKind; onResult
   const [state, setState] = useState<GestureState>('arming');
   const [count, setCount] = useState<number | null>(null);
   const [done, setDone] = useState<AttemptResult | null>(null);
+
+  const simulated = cameraProxy.isSimulating();
 
   useEffect(() => {
     cameraProxy.setPreviewContainer(previewRef.current);
@@ -29,12 +32,26 @@ export function GestureOverlay({ kind, onResult }: { kind: AttemptKind; onResult
     });
     const poll = setInterval(() => setState(app.gesture.getState()), 120);
 
+    // simulation: hold one synthetic hand steady so the controller confirms it
+    // through the exact same misrecognition-prevention gates as a real webcam.
+    let simTimer: ReturnType<typeof setInterval> | null = null;
+    if (simulated) {
+      const target =
+        kind === 'start'
+          ? synthHand({ thumb: true, index: true, middle: true, ring: true, pinky: true })
+          : kind === 'stop'
+            ? synthHand({})
+            : fingersUp(((Math.floor(Math.random() * 5) + 1) as 1 | 2 | 3 | 4 | 5));
+      simTimer = setInterval(() => cameraProxy.emitSyntheticFrame(target), 30);
+    }
+
     let alive = true;
     app.gesture.attempt(kind).then((r) => {
       if (!alive) return;
       setDone(r);
       offFrame();
       clearInterval(poll);
+      if (simTimer) clearInterval(simTimer);
       cameraProxy.setPreviewContainer(null);
       // brief confirm/failure flash, then hand back
       setTimeout(() => onResult(r), r.outcome === 'confirmed' ? 650 : 200);
@@ -43,6 +60,7 @@ export function GestureOverlay({ kind, onResult }: { kind: AttemptKind; onResult
       alive = false;
       offFrame();
       clearInterval(poll);
+      if (simTimer) clearInterval(simTimer);
       cameraProxy.setPreviewContainer(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -68,14 +86,21 @@ export function GestureOverlay({ kind, onResult }: { kind: AttemptKind; onResult
           <>
             <div className="row spread">
               <strong>{kind === 'count' ? '손가락 개수' : kind === 'start' ? '제스처로 시작' : '제스처로 정지'}</strong>
-              <span className="tag">{stateLabel(state)}</span>
+              <span className="row" style={{ gap: 4 }}>
+                {simulated && <span className="tag">시뮬레이션</span>}
+                <span className="tag">{stateLabel(state)}</span>
+              </span>
             </div>
             <div
               ref={previewRef}
               className="center"
               style={{ minHeight: 180, background: 'var(--panel-2)', borderRadius: 12, position: 'relative' }}
             >
-              {state === 'arming' && <span className="muted small">카메라·모델 준비 중… (최초 1회 수 초)</span>}
+              {state === 'arming' && (
+                <span className="muted small">
+                  {simulated ? '합성 프레임 주입 중…' : '카메라·모델 준비 중… (최초 1회 수 초)'}
+                </span>
+              )}
               {state === 'detecting' && count != null && (
                 <div
                   style={{ position: 'absolute', right: 12, bottom: 10, fontSize: 40, fontWeight: 800 }}

@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useReducer, useState } from 'react';
 import { app, subjects, pendingRecovery } from '../appInstance';
 import { Card, Tag } from '../ui';
-import { mmss, hm } from '../hooks';
+import { mmss, mmssCs, hm } from '../hooks';
 import { GestureOverlay } from '../GestureOverlay';
 import { computeElapsed, isPaused } from '@app/core/session/elapsed';
 import { subjectByFingerCount } from '@app/core/subjects';
@@ -104,7 +104,8 @@ export function TimerScreen() {
 
       <Card>
         <div className="center col" style={{ gap: 10, padding: '8px 0 4px' }}>
-          <div className={`clock big ${paused ? 'muted' : ''}`}>{elapsed ? mmss(elapsed.countedMs) : '00:00'}</div>
+          <LiveClock hasSession={active != null} paused={paused} />
+
           <div className="row wrap center" style={{ gap: 6 }}>
             {active ? (
               <>
@@ -185,4 +186,34 @@ export function TimerScreen() {
 
 function clamp15(n: number): number {
   return Math.max(1, Math.min(5, Math.round(n)));
+}
+
+/**
+ * The big timer readout, mm:ss.cs. Owns its own animation frame loop so the
+ * two-decimal seconds update smoothly without re-rendering the whole screen.
+ * The value is still a pure function of stored timestamps every frame — the
+ * rAF loop only triggers a re-read, it never accumulates.
+ */
+function LiveClock({ hasSession, paused }: { hasSession: boolean; paused: boolean }) {
+  const [, tick] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    if (!hasSession || paused) return;
+    let raf = 0;
+    const loop = () => {
+      tick();
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [hasSession, paused]);
+
+  const active = app.store.getActive();
+  const elapsed = active
+    ? computeElapsed({ start: active.start, pauses: active.pauses, endWall: active.endWall }, app.clock.now())
+    : null;
+  return (
+    <div className={`clock big ${paused ? 'muted' : ''}`}>
+      {elapsed ? mmssCs(elapsed.countedMs) : '00:00.00'}
+    </div>
+  );
 }

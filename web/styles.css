@@ -67,8 +67,8 @@ input[type="text"], input[type="number"], select {
 input[type="range"] { width: 100%; }
 label.field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--muted); }
 
-.clock { font-variant-numeric: tabular-nums; font-weight: 700; letter-spacing: .02em; }
-.clock.big { font-size: 56px; }
+.clock { font-variant-numeric: tabular-nums; font-weight: 700; letter-spacing: .01em; }
+.clock.big { font-size: clamp(40px, 13vw, 52px); }
 
 .tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
 .tag.on { color: var(--good); border-color: #2c5b4f; }

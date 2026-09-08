@@ -24,24 +24,47 @@ export interface WebSettings {
   quoteSources: QuoteSourceConfig;
   userGoals: string[];
   gestureOverrides: Partial<GestureConfig>;
+  /** demo a full gesture flow with synthetic frames when there is no webcam. */
+  gestureSim: boolean;
 }
 
-const SETTINGS_KEY = 'web-settings.v1';
+const SETTINGS_KEY = 'web-settings.v2';
 const DEFAULT_SETTINGS: WebSettings = {
   dailyGoalMin: 60,
   freeze: { ...DEFAULT_FREEZE_CONFIG },
   throttler: { ...DEFAULT_THROTTLER_CONFIG },
   quoteSources: { ...DEFAULT_QUOTE_SOURCES },
   userGoals: ['올해 목표: 매일 3시간'],
-  // web needs a generous arming window: the first attempt downloads the WASM + model
-  gestureOverrides: { armingTimeoutMs: 12_000, maxBurstMs: 15_000, holdDurationMs: 500, framesForConfirm: 5, minHandSpan: 0.08 },
+  // web needs a generous arming window (first attempt downloads the WASM + model)
+  // and a slightly lower FPS floor (in-browser MediaPipe often runs ~10-15fps).
+  gestureOverrides: {
+    armingTimeoutMs: 12_000,
+    maxBurstMs: 15_000,
+    holdDurationMs: 500,
+    framesForConfirm: 5,
+    minHandSpan: 0.08,
+    minAcceptableFps: 6,
+  },
+  gestureSim: false,
 };
 
 function loadSettings(): WebSettings {
   const raw = kv.getString(SETTINGS_KEY);
   if (!raw) return structuredClone(DEFAULT_SETTINGS);
   try {
-    return { ...structuredClone(DEFAULT_SETTINGS), ...(JSON.parse(raw) as Partial<WebSettings>) };
+    const saved = JSON.parse(raw) as Partial<WebSettings>;
+    const base = structuredClone(DEFAULT_SETTINGS);
+    // shallow-merge top level, but deep-merge the nested config objects so new
+    // default keys (e.g. a newly added gesture param) are not masked by a stale
+    // saved object.
+    return {
+      ...base,
+      ...saved,
+      freeze: { ...base.freeze, ...saved.freeze },
+      throttler: { ...base.throttler, ...saved.throttler },
+      quoteSources: { ...base.quoteSources, ...saved.quoteSources },
+      gestureOverrides: { ...base.gestureOverrides, ...saved.gestureOverrides },
+    };
   } catch {
     return structuredClone(DEFAULT_SETTINGS);
   }
@@ -62,6 +85,7 @@ export function updateSettings(patch: Partial<WebSettings>): void {
   kv.set(SETTINGS_KEY, JSON.stringify(settings));
   app.store.updateConfig({ dailyGoalMs: settings.dailyGoalMin * 60_000, freezeConfig: settings.freeze });
   app.gesture.updateConfig({ ...DEFAULT_GESTURE_CONFIG, ...settings.gestureOverrides });
+  cameraProxy.setSimulating(settings.gestureSim);
   for (const l of [...settingsListeners]) l();
 }
 
@@ -94,9 +118,15 @@ export const installDate = (() => {
   return iso;
 })();
 
+cameraProxy.setSimulating(settings.gestureSim);
+
 if (typeof window !== 'undefined') {
   window.addEventListener('focus', () => app.syncOnForeground());
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) app.syncOnForeground();
   });
+  // dev-only handle for manual poking from the console / automated checks
+  if (import.meta.env?.DEV) {
+    (window as unknown as { __gst: unknown }).__gst = { app, cameraProxy, subjects, getSettings, updateSettings };
+  }
 }
