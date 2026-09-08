@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "제스처 학습 타이머",
+    "slug": "gesture-study-timer",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "gesturestudytimer",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.example.gesturestudytimer",
+      "infoPlist": {
+        "NSCameraUsageDescription": "손동작으로 타이머를 시작·정지하려면 카메라가 필요해요. 카메라 영상은 기기 밖으로 전송되지 않습니다.",
+        "UIBackgroundModes": ["processing"]
+      },
+      "entitlements": {
+        "com.apple.developer.usernotifications.time-sensitive": true
+      }
+    },
+    "android": {
+      "package": "com.example.gesturestudytimer",
+      "permissions": [
+        "CAMERA",
+        "POST_NOTIFICATIONS",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_SPECIAL_USE",
+        "WAKE_LOCK",
+        "RECEIVE_BOOT_COMPLETED"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "손동작 인식을 위해 카메라 접근이 필요합니다. 영상은 저장·전송되지 않습니다.",
+          "enableMicrophonePermission": false
+        }
+      ],
+      [
+        "expo-notifications",
+        { "sounds": [] }
+      ]
+    ],
+    "extra": {
+      "//": "온디바이스 원칙: 카메라 프레임은 절대 이 URL로도 전송하지 않음. 세션 집계치만.",
+      "analysisApiBaseUrl": "https://api.example.com"
+    }
+  }
+}
