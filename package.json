@@ -2,23 +2,35 @@
   "name": "gesture-study-timer",
   "version": "0.1.0",
   "private": true,
-  "description": "제스처 기반 학습 타이머 앱 - 단일 진실 소스 코어 + Expo/RN 앱",
+  "description": "제스처 기반 학습 타이머 앱 - 단일 진실 소스 코어 + 웹 데모 + Expo/RN 앱",
   "main": "index.ts",
   "scripts": {
+    "dev": "vite",
+    "web": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.18",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
   "devDependencies": {
     "@types/node": "^22.10.5",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.7.3",
+    "vite": "^5.4.11",
     "vitest": "^2.1.8"
   },
-  "comment_app_dependencies": "아래 appDependencies 는 3단계 이후 macOS/Android SDK 가 있는 개발 머신에서 실제 앱을 빌드할 때 dependencies 로 승격합니다. Windows CI/로직 테스트 환경에서는 설치하지 않습니다. 자세한 이유는 docs/03-mvp.md 참고.",
+  "comment_app_dependencies": "아래 appDependencies 는 macOS/Android SDK 가 있는 머신에서 실제 iOS/Android 앱을 빌드할 때 dependencies 로 승격합니다. Windows 에서는 'npm run web' 웹 데모로 실행합니다. 자세한 내용은 docs/03-mvp.md, docs/08-web-demo.md 참고.",
   "appDependencies": {
     "expo": "~54.0.0",
-    "react": "19.1.0",
     "react-native": "0.81.4",
     "expo-dev-client": "~6.0.0",
     "expo-router": "~6.0.0",

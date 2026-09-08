@@ -31,6 +31,8 @@ export interface App {
   bus: InputBus;
   gesture: GestureController;
   clock: Clock;
+  /** honest disclosure of what the OS timer surface can actually do. */
+  foregroundTimerCapabilities(): { liveTick: boolean; exactBackground: boolean; note: string };
   /** call on app foreground / resume. */
   syncOnForeground(): void;
   dispose(): void;
@@ -102,6 +104,7 @@ export function createApp(adapters: Adapters, config: AppConfig): App {
     bus,
     gesture,
     clock,
+    foregroundTimerCapabilities: () => adapters.foregroundTimer.capabilities(),
     syncOnForeground() {
       // recompute from timestamps; the store's derivations are already pull-based,
       // so this just nudges subscribers and reconciles the foreground surface.

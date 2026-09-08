@@ -170,6 +170,20 @@ describe('SessionStore — badge award through the store is idempotent', () => {
   });
 });
 
+describe('SessionStore — updateConfig', () => {
+  it('changing dailyGoalMs re-derives attendance on next read (still one SoT)', () => {
+    const { clock, store } = makeStore(seoul(2026, 9, 8, 9, 0));
+    store.dispatch({ type: 'START', sessionId: nextId(), subjectId: 'math', plannedMs: null, source: 'button' });
+    clock.advance(45 * MIN);
+    store.dispatch({ type: 'STOP', source: 'button' });
+
+    expect(store.attendance()[0]!.attended).toBe(false); // 45 < 60 goal
+    store.updateConfig({ dailyGoalMs: 40 * MIN });
+    expect(store.attendance()[0]!.attended).toBe(true); // same sessions, new goal
+    expect(store.getConfig().dailyGoalMs).toBe(40 * MIN);
+  });
+});
+
 describe('SessionStore — 자정 경계 through the store', () => {
   it('a session started at 23:40 and stopped at 00:20 counts fully toward the start day', () => {
     const { clock, store } = makeStore(seoul(2026, 9, 8, 23, 40));
