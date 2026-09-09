@@ -5,9 +5,10 @@
   "description": "제스처 기반 학습 타이머 앱 - 단일 진실 소스 코어 + 웹 데모 + Expo/RN 앱",
   "main": "index.ts",
   "scripts": {
-    "dev": "vite",
-    "web": "vite",
-    "build": "vite build",
+    "prep:web": "node scripts/prep-web.mjs",
+    "dev": "npm run prep:web && vite",
+    "web": "npm run dev",
+    "build": "npm run prep:web && vite build",
     "preview": "vite preview --port 4173",
     "test": "vitest run",
     "test:watch": "vitest",
