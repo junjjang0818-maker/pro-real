@@ -3,7 +3,7 @@ import { app, cameraProxy } from './appInstance';
 import { countExtendedFingers } from '@app/features/gesture/fingerCounting';
 import { fingersUp, synthHand } from '@app/features/gesture/synthetic';
 import { lastGestureLoadError } from '@app/native/web/webcamGestureSource';
-import { templateClassifyCount, calibrationReady } from './calibration';
+import { templateClassifyCount, calibrationReady, calibrationTrained } from './calibration';
 import type { AttemptKind, AttemptResult, GestureState } from '@app/features/gesture/GestureController';
 
 const PROMPT: Record<AttemptKind, string> = {
@@ -123,7 +123,11 @@ export function GestureOverlay({ kind, onResult }: { kind: AttemptKind; onResult
             <div className="row spread">
               <strong>{kind === 'count' ? '손가락 개수' : kind === 'start' ? '제스처로 시작' : '제스처로 정지'}</strong>
               <span className="row" style={{ gap: 4 }}>
-                {calibrationReady() && <span className="tag on">학습된 손모양</span>}
+                {calibrationTrained() ? (
+                  <span className="tag on">신경망</span>
+                ) : (
+                  calibrationReady() && <span className="tag on">학습된 손모양</span>
+                )}
                 {simulated && <span className="tag">시뮬레이션</span>}
                 <span className="tag">{stateLabel(state)}</span>
               </span>
