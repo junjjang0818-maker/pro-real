@@ -9,8 +9,10 @@ import { DEFAULT_FREEZE_CONFIG, type FreezeConfig } from '@app/core/derivations/
 import { DEFAULT_THROTTLER_CONFIG, type ThrottlerConfig } from '@app/features/gamification/notificationThrottler';
 import { DEFAULT_QUOTE_SOURCES, type QuoteSourceConfig } from '@app/features/motivation/quotes';
 import { prewarmGestureModel } from '@app/native/web/webcamGestureSource';
+import { isPaused } from '@app/core/session/elapsed';
 import { webCameraProxy } from './webCameraProxy';
 import { createSubjectsStore } from './subjectsStore';
+import { createGestureWatch } from './gestureWatch';
 
 const kv = webKeyValueStore();
 
@@ -27,6 +29,8 @@ export interface WebSettings {
   gestureOverrides: Partial<GestureConfig>;
   /** demo a full gesture flow with synthetic frames when there is no webcam. */
   gestureSim: boolean;
+  /** keep the camera on and auto-detect start (open palm) / stop (fist) — no button. */
+  gestureAuto: boolean;
 }
 
 const SETTINGS_KEY = 'web-settings.v3';
@@ -47,6 +51,7 @@ const DEFAULT_SETTINGS: WebSettings = {
     minAcceptableFps: 6,
   },
   gestureSim: false,
+  gestureAuto: false,
 };
 
 function loadSettings(): WebSettings {
@@ -94,7 +99,23 @@ export function updateSettings(patch: Partial<WebSettings>): void {
   app.store.updateConfig({ dailyGoalMs: settings.dailyGoalMin * 60_000, freezeConfig: settings.freeze });
   app.gesture.updateConfig({ ...DEFAULT_GESTURE_CONFIG, ...settings.gestureOverrides });
   cameraProxy.setSimulating(settings.gestureSim);
+  syncGestureWatch();
   for (const l of [...settingsListeners]) l();
+}
+
+let watchStarting = false;
+function syncGestureWatch(): void {
+  if (typeof window === 'undefined') return;
+  const want = settings.gestureAuto && !settings.gestureSim;
+  const st = gestureWatch.getState().status;
+  if (want && st === 'off' && !watchStarting) {
+    watchStarting = true;
+    void gestureWatch.start().finally(() => {
+      watchStarting = false;
+    });
+  } else if (!want && st !== 'off') {
+    gestureWatch.stop();
+  }
 }
 
 // ── the app ────────────────────────────────────────────────────────────────
@@ -112,6 +133,30 @@ export const app = createApp(
     gesture: { ...DEFAULT_GESTURE_CONFIG, ...settings.gestureOverrides },
   },
 );
+
+// ── always-on gesture watcher (opt-in) ─────────────────────────────────────
+let autoPreviewEl: HTMLElement | null = null;
+export function setAutoGesturePreview(el: HTMLElement | null): void {
+  autoPreviewEl = el;
+}
+let autoStartSubjectId: string | null = null;
+let autoStartPlannedMs: number | null = null;
+export function setAutoStartParams(subjectId: string | null, plannedMs: number | null): void {
+  autoStartSubjectId = subjectId;
+  autoStartPlannedMs = plannedMs;
+}
+export const gestureWatch = createGestureWatch({
+  isSessionActive: () => app.store.getActive() != null,
+  onStart: () =>
+    app.bus.emit({ purpose: 'start', source: 'gesture', subjectId: autoStartSubjectId, plannedMs: autoStartPlannedMs }),
+  onStop: () => {
+    const a = app.store.getActive();
+    if (a && isPaused(a)) app.bus.emit({ purpose: 'toggle-pause', source: 'gesture' });
+    app.bus.emit({ purpose: 'stop', source: 'gesture' });
+  },
+  getConfig: () => ({ ...DEFAULT_GESTURE_CONFIG, ...settings.gestureOverrides }),
+  previewContainer: () => autoPreviewEl,
+});
 
 // surface a needs-confirmation recovery to the UI
 export const pendingRecovery = app.store.inspectRecovery();
@@ -133,6 +178,8 @@ cameraProxy.setSimulating(settings.gestureSim);
 if (typeof window !== 'undefined' && !settings.gestureSim) {
   setTimeout(() => void prewarmGestureModel(), 1500);
 }
+// start the always-on watcher if it was left enabled
+if (typeof window !== 'undefined') setTimeout(syncGestureWatch, 1800);
 
 if (typeof window !== 'undefined') {
   window.addEventListener('focus', () => app.syncOnForeground());
@@ -141,6 +188,13 @@ if (typeof window !== 'undefined') {
   });
   // dev-only handle for manual poking from the console / automated checks
   if (import.meta.env?.DEV) {
-    (window as unknown as { __gst: unknown }).__gst = { app, cameraProxy, subjects, getSettings, updateSettings };
+    (window as unknown as { __gst: unknown }).__gst = {
+      app,
+      cameraProxy,
+      gestureWatch,
+      subjects,
+      getSettings,
+      updateSettings,
+    };
   }
 }

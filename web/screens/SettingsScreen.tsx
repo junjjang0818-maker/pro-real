@@ -42,9 +42,19 @@ export function SettingsScreen() {
       <Card title="제스처 인식 (오인식 방지 파라미터)">
         <div style={{ marginBottom: 10 }}>
           <Toggle
+            label="제스처 자동 인식 (버튼 없이 · 항상 카메라 켜짐)"
+            checked={s.gestureAuto}
+            onChange={(b) => updateSettings({ gestureAuto: b, gestureSim: b ? false : s.gestureSim })}
+          />
+          <p className="muted small" style={{ margin: '4px 0 0' }}>
+            켜면 타이머 화면에서 <b>손바닥을 펴면 세션 시작</b>, 세션 중 <b>주먹을 쥐면 정지</b> — 버튼을 누를 필요가 없습니다. 카메라가 계속 켜져 배터리를 더 씁니다(네이티브 앱 기본값은 조작 시점만 켜는 버스트 방식).
+          </p>
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <Toggle
             label="제스처 시뮬레이션 (웹캠 없이 데모/테스트)"
             checked={s.gestureSim}
-            onChange={(b) => updateSettings({ gestureSim: b })}
+            onChange={(b) => updateSettings({ gestureSim: b, gestureAuto: b ? false : s.gestureAuto })}
           />
           <p className="muted small" style={{ margin: '4px 0 0' }}>
             켜면 카메라 대신 합성 프레임을 주입해 동일한 확정 로직(신뢰도·유지시간·프레임수·쿨다운)을 통과시킵니다.
