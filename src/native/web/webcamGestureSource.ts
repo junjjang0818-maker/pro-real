@@ -31,8 +31,15 @@ export interface WebcamGestureOptions {
 const MP_VERSION = typeof __MEDIAPIPE_VERSION__ !== 'undefined' ? __MEDIAPIPE_VERSION__ : '0.10.35';
 const LOCAL_WASM = '/mediapipe/wasm';
 const CDN_WASM = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`;
-const DEFAULT_MODEL =
+const LOCAL_MODEL = '/mediapipe/hand_landmarker.task'; // downloaded by scripts/prep-web.mjs
+const GOOGLE_MODEL =
   'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+
+/** Model URLs to try in order: user override -> local file -> Google-hosted. */
+function modelCandidates(override?: string): string[] {
+  const list = [override ?? readOverride('gst:gesture-model') ?? '', LOCAL_MODEL, GOOGLE_MODEL];
+  return [...new Set(list.filter(Boolean))];
+}
 
 /** Last load error, surfaced to the UI so the user can tell what failed. */
 let lastLoadError: string | null = null;
@@ -64,11 +71,11 @@ export function disposeGestureModel(): void {
  */
 export function prewarmGestureModel(opts: { wasmBase?: string; wasmCdn?: string; modelUrl?: string } = {}): Promise<void> {
   if (cached || prewarming) return prewarming ?? Promise.resolve();
-  const modelUrl = opts.modelUrl ?? readOverride('gst:gesture-model') ?? DEFAULT_MODEL;
+  const models = modelCandidates(opts.modelUrl);
   const wasmBases = [opts.wasmBase ?? LOCAL_WASM, opts.wasmCdn ?? CDN_WASM];
-  prewarming = loadLandmarker(wasmBases, modelUrl)
+  prewarming = loadLandmarker(wasmBases, models)
     .then((lm) => {
-      cached = { key: `${wasmBases.join('|')}::${modelUrl}`, lm };
+      cached = { key: cacheKey(wasmBases, models), lm };
     })
     .catch((e) => {
       lastLoadError = describe(e);
@@ -79,10 +86,14 @@ export function prewarmGestureModel(opts: { wasmBase?: string; wasmCdn?: string;
   return prewarming;
 }
 
+function cacheKey(wasmBases: string[], models: string[]): string {
+  return `${wasmBases.join('|')}::${models.join('|')}`;
+}
+
 export function webcamGestureSource(opts: WebcamGestureOptions = {}): CameraSource {
   const width = opts.width ?? 480;
   const height = opts.height ?? 360;
-  const modelUrl = opts.modelUrl ?? readOverride('gst:gesture-model') ?? DEFAULT_MODEL;
+  const models = modelCandidates(opts.modelUrl);
   const wasmBases = [opts.wasmBase ?? LOCAL_WASM, opts.wasmCdn ?? CDN_WASM];
 
   let stream: MediaStream | null = null;
@@ -132,14 +143,14 @@ export function webcamGestureSource(opts: WebcamGestureOptions = {}): CameraSour
     });
 
     // 2) model — cached for the session; first build tries local wasm then CDN,
-    //    GPU then CPU. Wait for an in-flight prewarm if there is one.
-    const key = `${wasmBases.join('|')}::${modelUrl}`;
+    //    each model URL, GPU then CPU. Wait for an in-flight prewarm if there is one.
+    const key = cacheKey(wasmBases, models);
     if (prewarming) await prewarming.catch(() => {});
     if (cached?.key === key) {
       landmarker = cached.lm;
     } else {
       try {
-        const lm = await loadLandmarker(wasmBases, modelUrl);
+        const lm = await loadLandmarker(wasmBases, models);
         disposeGestureModel();
         cached = { key, lm };
         landmarker = lm;
@@ -208,32 +219,42 @@ export function webcamGestureSource(opts: WebcamGestureOptions = {}): CameraSour
   };
 }
 
-async function loadLandmarker(wasmBases: string[], modelUrl: string): Promise<HandLandmarker> {
+async function loadLandmarker(wasmBases: string[], modelUrls: string[]): Promise<HandLandmarker> {
+  const tried: string[] = [];
   let lastErr: unknown;
   for (const base of wasmBases) {
     let fileset: Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>;
     try {
       fileset = await FilesetResolver.forVisionTasks(base);
     } catch (e) {
+      tried.push(`wasm ${base}`);
       lastErr = e;
       continue; // try the next wasm source
     }
-    for (const delegate of ['GPU', 'CPU'] as const) {
-      try {
-        return await HandLandmarker.createFromOptions(fileset, {
-          baseOptions: { modelAssetPath: modelUrl, delegate },
-          runningMode: 'VIDEO',
-          numHands: 1,
-          minHandDetectionConfidence: 0.5,
-          minHandPresenceConfidence: 0.5,
-          minTrackingConfidence: 0.5,
-        });
-      } catch (e) {
-        lastErr = e;
+    for (const modelUrl of modelUrls) {
+      for (const delegate of ['GPU', 'CPU'] as const) {
+        try {
+          return await HandLandmarker.createFromOptions(fileset, {
+            baseOptions: { modelAssetPath: modelUrl, delegate },
+            runningMode: 'VIDEO',
+            numHands: 1,
+            minHandDetectionConfidence: 0.5,
+            minHandPresenceConfidence: 0.5,
+            minTrackingConfidence: 0.5,
+          });
+        } catch (e) {
+          tried.push(`model ${short(modelUrl)} [${delegate}]`);
+          lastErr = e;
+        }
       }
     }
   }
-  throw lastErr ?? new Error('unknown MediaPipe load failure');
+  const detail = lastErr instanceof Error ? `${lastErr.name}: ${lastErr.message}` : String(lastErr);
+  throw new Error(`${detail} — tried: ${tried.join(', ') || '(nothing)'}`);
+}
+
+function short(url: string): string {
+  return url.startsWith('http') ? new URL(url).host : url;
 }
 
 function readOverride(key: string): string | null {

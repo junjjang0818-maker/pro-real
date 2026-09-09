@@ -1,11 +1,20 @@
-import React, { useEffect, useReducer, useState } from 'react';
-import { app, subjects, pendingRecovery } from '../appInstance';
-import { Card, Tag } from '../ui';
+import React, { useEffect, useReducer, useRef, useState } from 'react';
+import {
+  app,
+  subjects,
+  pendingRecovery,
+  getSettings,
+  gestureWatch,
+  setAutoGesturePreview,
+  setAutoStartParams,
+} from '../appInstance';
+import { Card, Tag, Bar } from '../ui';
 import { mmss, mmssCs, hm } from '../hooks';
 import { GestureOverlay } from '../GestureOverlay';
 import { computeElapsed, isPaused } from '@app/core/session/elapsed';
 import { subjectByFingerCount } from '@app/core/subjects';
 import type { AttemptKind, AttemptResult } from '@app/features/gesture/GestureController';
+import type { WatchState } from '../gestureWatch';
 import type { FocusRating } from '@app/core/session/types';
 
 export function TimerScreen() {
@@ -17,6 +26,7 @@ export function TimerScreen() {
   const [gesture, setGesture] = useState<{ kind: AttemptKind; then: (r: AttemptResult) => void } | null>(null);
   const rec = pendingRecovery.kind === 'needs-confirmation' ? pendingRecovery : null;
   const [recovered, setRecovered] = useState(rec == null);
+  const auto = getSettings().gestureAuto;
 
   const elapsed = active
     ? computeElapsed({ start: active.start, pauses: active.pauses, endWall: active.endWall }, now)
@@ -25,6 +35,11 @@ export function TimerScreen() {
 
   const today = app.store.today();
   const todayRow = app.store.attendance().find((a) => a.localDate === today);
+
+  // keep the always-on watcher's start params in sync with the pickers
+  useEffect(() => {
+    setAutoStartParams(subjectId || null, plannedMin > 0 ? plannedMin * 60_000 : null);
+  }, [subjectId, plannedMin]);
 
   const emitStart = (sid: string, source: 'button' | 'gesture') =>
     app.bus.emit({
@@ -144,23 +159,49 @@ export function TimerScreen() {
               <button className="primary" onClick={() => emitStart(subjectId, 'button')}>
                 ▶ 시작
               </button>
-              <button onClick={() => setGesture({ kind: 'start', then: (r) => { setGesture(null); if (r.outcome === 'confirmed') emitStart(subjectId, 'gesture'); } })}>
-                ✋ 제스처로 시작
-              </button>
-              <button onClick={startGestureSubject}>🖐 손가락으로 과목 선택 후 시작</button>
+              {!auto && (
+                <>
+                  <button onClick={() => setGesture({ kind: 'start', then: (r) => { setGesture(null); if (r.outcome === 'confirmed') emitStart(subjectId, 'gesture'); } })}>
+                    ✋ 제스처로 시작
+                  </button>
+                  <button onClick={startGestureSubject}>🖐 손가락으로 과목 선택 후 시작</button>
+                </>
+              )}
             </div>
+            {auto && <AutoGesturePanel target="start" />}
           </div>
         ) : (
-          <div className="row wrap" style={{ marginTop: 6 }}>
-            <button onClick={() => app.bus.emit({ purpose: 'toggle-pause', source: 'button' })}>
-              {paused ? '▶ 재개' : '⏸ 일시정지'}
-            </button>
-            <button className="bad" onClick={() => app.bus.emit({ purpose: 'stop', source: 'button' })}>
-              ■ 정지
-            </button>
-            <button className="bad ghost" onClick={stopWithGestureRating}>
-              ■ 정지 + 손가락 자기평가
-            </button>
+          <div className="col" style={{ gap: 10, marginTop: 6 }}>
+            <div className="row wrap">
+              <button onClick={() => app.bus.emit({ purpose: 'toggle-pause', source: 'button' })}>
+                {paused ? '▶ 재개' : '⏸ 일시정지'}
+              </button>
+              <button className="bad" onClick={() => app.bus.emit({ purpose: 'stop', source: 'button' })}>
+                ■ 정지
+              </button>
+              {!auto && (
+                <>
+                  <button
+                    className="bad ghost"
+                    onClick={() =>
+                      setGesture({
+                        kind: 'stop',
+                        then: (r) => {
+                          setGesture(null);
+                          if (r.outcome === 'confirmed') app.bus.emit({ purpose: 'stop', source: 'gesture' });
+                        },
+                      })
+                    }
+                  >
+                    ✊ 제스처로 정지
+                  </button>
+                  <button className="bad ghost" onClick={stopWithGestureRating}>
+                    ■ 정지 + 손가락 자기평가
+                  </button>
+                </>
+              )}
+            </div>
+            {auto && <AutoGesturePanel target="stop" />}
           </div>
         )}
       </Card>
@@ -186,6 +227,58 @@ export function TimerScreen() {
 
 function clamp15(n: number): number {
   return Math.max(1, Math.min(5, Math.round(n)));
+}
+
+/** Persistent status for the always-on watcher: no button, just aim your hand. */
+function AutoGesturePanel({ target }: { target: 'start' | 'stop' }) {
+  const previewRef = useRef<HTMLDivElement>(null);
+  const [w, setW] = useState<WatchState>(gestureWatch.getState());
+
+  useEffect(() => {
+    setAutoGesturePreview(previewRef.current);
+    const off = gestureWatch.subscribe(setW);
+    return () => {
+      off();
+      setAutoGesturePreview(null);
+    };
+  }, []);
+
+  const prompt = target === 'start' ? '손바닥을 펴서 유지하면 시작' : '주먹을 쥐어 유지하면 정지';
+  return (
+    <div
+      className="col"
+      style={{ gap: 8, background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 12, padding: 12 }}
+    >
+      <div className="row spread">
+        <strong className="small">👁 제스처 자동 인식</strong>
+        <span className="tag">
+          {w.status === 'watching'
+            ? w.cooldown
+              ? '쿨다운'
+              : w.count != null
+                ? `감지: ${w.count}`
+                : '대기 중'
+            : w.status === 'loading'
+              ? '모델 로딩…'
+              : w.status === 'error'
+                ? '오류'
+                : '꺼짐'}
+        </span>
+      </div>
+      <div ref={previewRef} style={{ minHeight: 4 }} />
+      {w.status === 'watching' && (
+        <>
+          <Bar value={w.progress} tone={w.progress >= 1 ? 'good' : 'accent'} />
+          <span className="muted small center">{prompt}</span>
+        </>
+      )}
+      {w.status === 'error' && (
+        <span className="small" style={{ color: 'var(--bad)', overflowWrap: 'anywhere' }}>
+          {w.error ?? '카메라/모델을 시작하지 못했습니다.'} — 설정에서 자동 인식을 끄면 버튼으로 진행할 수 있어요.
+        </span>
+      )}
+    </div>
+  );
 }
 
 /**
