@@ -8,6 +8,7 @@ import { DEFAULT_GESTURE_CONFIG, type GestureConfig } from '@app/features/gestur
 import { DEFAULT_FREEZE_CONFIG, type FreezeConfig } from '@app/core/derivations/streak';
 import { DEFAULT_THROTTLER_CONFIG, type ThrottlerConfig } from '@app/features/gamification/notificationThrottler';
 import { DEFAULT_QUOTE_SOURCES, type QuoteSourceConfig } from '@app/features/motivation/quotes';
+import { prewarmGestureModel } from '@app/native/web/webcamGestureSource';
 import { webCameraProxy } from './webCameraProxy';
 import { createSubjectsStore } from './subjectsStore';
 
@@ -28,7 +29,7 @@ export interface WebSettings {
   gestureSim: boolean;
 }
 
-const SETTINGS_KEY = 'web-settings.v2';
+const SETTINGS_KEY = 'web-settings.v3';
 const DEFAULT_SETTINGS: WebSettings = {
   dailyGoalMin: 60,
   freeze: { ...DEFAULT_FREEZE_CONFIG },
@@ -38,8 +39,8 @@ const DEFAULT_SETTINGS: WebSettings = {
   // web needs a generous arming window (first attempt downloads the WASM + model)
   // and a slightly lower FPS floor (in-browser MediaPipe often runs ~10-15fps).
   gestureOverrides: {
-    armingTimeoutMs: 12_000,
-    maxBurstMs: 15_000,
+    armingTimeoutMs: 15_000,
+    maxBurstMs: 18_000,
     holdDurationMs: 500,
     framesForConfirm: 5,
     minHandSpan: 0.08,
@@ -82,7 +83,14 @@ export function subscribeSettings(fn: () => void): () => void {
 }
 export function updateSettings(patch: Partial<WebSettings>): void {
   settings = { ...settings, ...patch };
-  kv.set(SETTINGS_KEY, JSON.stringify(settings));
+  // persist only gesture overrides the user actually changed, so future default
+  // changes still reach sliders they never touched.
+  const gOverrides: Partial<GestureConfig> = {};
+  const base = { ...DEFAULT_GESTURE_CONFIG, ...DEFAULT_SETTINGS.gestureOverrides } as Record<string, number>;
+  for (const [k, v] of Object.entries(settings.gestureOverrides)) {
+    if (v !== base[k]) (gOverrides as Record<string, number>)[k] = v as number;
+  }
+  kv.set(SETTINGS_KEY, JSON.stringify({ ...settings, gestureOverrides: gOverrides }));
   app.store.updateConfig({ dailyGoalMs: settings.dailyGoalMin * 60_000, freezeConfig: settings.freeze });
   app.gesture.updateConfig({ ...DEFAULT_GESTURE_CONFIG, ...settings.gestureOverrides });
   cameraProxy.setSimulating(settings.gestureSim);
@@ -119,6 +127,12 @@ export const installDate = (() => {
 })();
 
 cameraProxy.setSimulating(settings.gestureSim);
+
+// warm the MediaPipe model in the background so the first gesture attempt is
+// snappy (skipped in simulation mode — no model needed there).
+if (typeof window !== 'undefined' && !settings.gestureSim) {
+  setTimeout(() => void prewarmGestureModel(), 1500);
+}
 
 if (typeof window !== 'undefined') {
   window.addEventListener('focus', () => app.syncOnForeground());

@@ -10,32 +10,80 @@ import type { HandObservation, Landmark } from '../../features/gesture/fingerCou
  * mode resolves cleanly so the controller falls back to buttons:
  *   - camera permission denied      -> start() rejects (NotAllowedError)
  *   - no camera present             -> start() rejects (NotFoundError)
- *   - model / wasm fails to load    -> start() rejects (Error) -> 'error' fallback
+ *   - model / wasm fails to load    -> start() rejects with a readable message
  *   - frames stop arriving          -> controller arming-timeout / FPS watchdog
  *
- * Frames are only pulled while an attempt is active (start()..stop()); the
- * camera track is fully stopped on stop() — no idle streaming.
+ * WASM loads from the LOCAL copy (`public/mediapipe/wasm`, copied out of
+ * node_modules by scripts/prep-web.mjs) so the JS API and WASM glue are always
+ * the same version. A version-matched jsDelivr URL is the fallback. The GPU
+ * delegate is tried first, then CPU.
  */
 
 export interface WebcamGestureOptions {
-  /** MediaPipe vision WASM bundle. Defaults to the jsDelivr copy of the installed version. */
   wasmBase?: string;
-  /** hand_landmarker.task model. Defaults to Google's hosted model. */
+  wasmCdn?: string;
   modelUrl?: string;
   width?: number;
   height?: number;
-  /** optional: mount the live <video> here so the UI can show a preview. */
   previewContainer?: HTMLElement | null;
 }
 
-const DEFAULT_WASM =
-  'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm';
+const MP_VERSION = typeof __MEDIAPIPE_VERSION__ !== 'undefined' ? __MEDIAPIPE_VERSION__ : '0.10.35';
+const LOCAL_WASM = '/mediapipe/wasm';
+const CDN_WASM = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`;
 const DEFAULT_MODEL =
   'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+
+/** Last load error, surfaced to the UI so the user can tell what failed. */
+let lastLoadError: string | null = null;
+export function lastGestureLoadError(): string | null {
+  return lastLoadError;
+}
+
+/**
+ * The HandLandmarker (WASM + ~7.5MB model) is expensive to build the first time
+ * (several seconds). Cache it for the session keyed by its config so only the
+ * FIRST gesture attempt pays the cost; later attempts are ~instant.
+ */
+let cached: { key: string; lm: HandLandmarker } | null = null;
+let prewarming: Promise<void> | null = null;
+
+export function disposeGestureModel(): void {
+  try {
+    cached?.lm.close();
+  } catch {
+    /* ignore */
+  }
+  cached = null;
+}
+
+/**
+ * Optionally load the model ahead of time (no camera) so the first gesture
+ * attempt doesn't wait several seconds for the ~7.5MB download. Fire-and-forget;
+ * failures are swallowed (the attempt will retry and surface the error then).
+ */
+export function prewarmGestureModel(opts: { wasmBase?: string; wasmCdn?: string; modelUrl?: string } = {}): Promise<void> {
+  if (cached || prewarming) return prewarming ?? Promise.resolve();
+  const modelUrl = opts.modelUrl ?? readOverride('gst:gesture-model') ?? DEFAULT_MODEL;
+  const wasmBases = [opts.wasmBase ?? LOCAL_WASM, opts.wasmCdn ?? CDN_WASM];
+  prewarming = loadLandmarker(wasmBases, modelUrl)
+    .then((lm) => {
+      cached = { key: `${wasmBases.join('|')}::${modelUrl}`, lm };
+    })
+    .catch((e) => {
+      lastLoadError = describe(e);
+    })
+    .finally(() => {
+      prewarming = null;
+    });
+  return prewarming;
+}
 
 export function webcamGestureSource(opts: WebcamGestureOptions = {}): CameraSource {
   const width = opts.width ?? 480;
   const height = opts.height ?? 360;
+  const modelUrl = opts.modelUrl ?? readOverride('gst:gesture-model') ?? DEFAULT_MODEL;
+  const wasmBases = [opts.wasmBase ?? LOCAL_WASM, opts.wasmCdn ?? CDN_WASM];
 
   let stream: MediaStream | null = null;
   let video: HTMLVideoElement | null = null;
@@ -45,8 +93,6 @@ export function webcamGestureSource(opts: WebcamGestureOptions = {}): CameraSour
   let lastVideoTime = -1;
   const frameCbs = new Set<(o: HandObservation | null) => void>();
   const signalCbs = new Set<(s: SystemSignal) => void>();
-
-  // FPS estimate pushed to the controller as a courtesy signal.
   let frameStamps: number[] = [];
 
   async function start(): Promise<void> {
@@ -54,6 +100,12 @@ export function webcamGestureSource(opts: WebcamGestureOptions = {}): CameraSour
     running = true;
     lastVideoTime = -1;
     frameStamps = [];
+    lastLoadError = null;
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      teardown();
+      throw new Error('이 브라우저는 카메라(getUserMedia)를 지원하지 않습니다. HTTPS 또는 localhost 인지 확인하세요.');
+    }
 
     // 1) camera — may reject with NotAllowedError / NotFoundError
     stream = await navigator.mediaDevices.getUserMedia({
@@ -70,7 +122,7 @@ export function webcamGestureSource(opts: WebcamGestureOptions = {}): CameraSour
     if (opts.previewContainer) {
       video.style.width = '100%';
       video.style.borderRadius = '12px';
-      video.style.transform = 'scaleX(-1)'; // mirror for a natural selfie view
+      video.style.transform = 'scaleX(-1)';
       opts.previewContainer.appendChild(video);
     }
     await video.play();
@@ -79,21 +131,23 @@ export function webcamGestureSource(opts: WebcamGestureOptions = {}): CameraSour
       else video?.addEventListener('loadeddata', () => res(), { once: true });
     });
 
-    // 2) model — may reject if wasm/model can't be fetched
-    try {
-      const fileset = await FilesetResolver.forVisionTasks(opts.wasmBase ?? DEFAULT_WASM);
-      landmarker = await HandLandmarker.createFromOptions(fileset, {
-        baseOptions: { modelAssetPath: opts.modelUrl ?? DEFAULT_MODEL, delegate: 'GPU' },
-        runningMode: 'VIDEO',
-        numHands: 1,
-        minHandDetectionConfidence: 0.5,
-        minHandPresenceConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-      });
-    } catch (err) {
-      // surface as a plain error -> GestureController maps to 'error' fallback
-      teardown();
-      throw new Error(`hand-landmarker load failed: ${(err as Error).message}`);
+    // 2) model — cached for the session; first build tries local wasm then CDN,
+    //    GPU then CPU. Wait for an in-flight prewarm if there is one.
+    const key = `${wasmBases.join('|')}::${modelUrl}`;
+    if (prewarming) await prewarming.catch(() => {});
+    if (cached?.key === key) {
+      landmarker = cached.lm;
+    } else {
+      try {
+        const lm = await loadLandmarker(wasmBases, modelUrl);
+        disposeGestureModel();
+        cached = { key, lm };
+        landmarker = lm;
+      } catch (err) {
+        lastLoadError = describe(err);
+        teardown();
+        throw new Error(`hand-landmarker load failed: ${lastLoadError}`);
+      }
     }
 
     loop();
@@ -106,8 +160,7 @@ export function webcamGestureSource(opts: WebcamGestureOptions = {}): CameraSour
       lastVideoTime = video.currentTime;
       let obs: HandObservation | null = null;
       try {
-        const res = landmarker.detectForVideo(video, nowMs);
-        obs = toObservation(res);
+        obs = toObservation(landmarker.detectForVideo(video, nowMs) as MpResult);
       } catch {
         obs = null;
       }
@@ -118,9 +171,7 @@ export function webcamGestureSource(opts: WebcamGestureOptions = {}): CameraSour
       if (frameStamps.length >= 6) {
         const span = nowMs - frameStamps[0]!;
         const fps = span > 0 ? ((frameStamps.length - 1) * 1000) / span : 60;
-        for (const cb of [...signalCbs]) {
-          cb({ lowPower: false, thermal: 'nominal', deliveredFps: fps });
-        }
+        for (const cb of [...signalCbs]) cb({ lowPower: false, thermal: 'nominal', deliveredFps: fps });
       }
     }
     raf = requestAnimationFrame(loop);
@@ -130,11 +181,7 @@ export function webcamGestureSource(opts: WebcamGestureOptions = {}): CameraSour
     running = false;
     if (raf) cancelAnimationFrame(raf);
     raf = 0;
-    try {
-      landmarker?.close();
-    } catch {
-      /* ignore */
-    }
+    // keep the (cached) landmarker alive for the next attempt; just drop our ref
     landmarker = null;
     if (stream) {
       for (const t of stream.getTracks()) t.stop();
@@ -161,6 +208,47 @@ export function webcamGestureSource(opts: WebcamGestureOptions = {}): CameraSour
   };
 }
 
+async function loadLandmarker(wasmBases: string[], modelUrl: string): Promise<HandLandmarker> {
+  let lastErr: unknown;
+  for (const base of wasmBases) {
+    let fileset: Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>;
+    try {
+      fileset = await FilesetResolver.forVisionTasks(base);
+    } catch (e) {
+      lastErr = e;
+      continue; // try the next wasm source
+    }
+    for (const delegate of ['GPU', 'CPU'] as const) {
+      try {
+        return await HandLandmarker.createFromOptions(fileset, {
+          baseOptions: { modelAssetPath: modelUrl, delegate },
+          runningMode: 'VIDEO',
+          numHands: 1,
+          minHandDetectionConfidence: 0.5,
+          minHandPresenceConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+        });
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+  }
+  throw lastErr ?? new Error('unknown MediaPipe load failure');
+}
+
+function readOverride(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function describe(err: unknown): string {
+  if (err instanceof Error) return `${err.name}: ${err.message}`;
+  return String(err);
+}
+
 interface MpLandmark {
   x: number;
   y: number;
@@ -179,9 +267,5 @@ function toObservation(res: MpResult): HandObservation | null {
   // MediaPipe reports handedness for the MIRRORED selfie image; flip it so
   // "Right" means the user's right hand, matching fingerCounting's thumb logic.
   const raw = cat?.categoryName === 'Left' ? 'Right' : 'Left';
-  return {
-    landmarks,
-    handedness: raw,
-    presence: cat?.score ?? 0.9,
-  };
+  return { landmarks, handedness: raw, presence: cat?.score ?? 0.9 };
 }

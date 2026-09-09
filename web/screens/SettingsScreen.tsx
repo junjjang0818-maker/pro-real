@@ -5,12 +5,29 @@ import { DEFAULT_GESTURE_CONFIG } from '@app/features/gesture/gestureConfig';
 import { getAnalysisEndpoint, setAnalysisEndpoint } from '../analysis';
 import { seedDemoData, resetDemoData } from '../seed';
 
+function readLS(k: string): string {
+  try {
+    return localStorage.getItem(k) ?? '';
+  } catch {
+    return '';
+  }
+}
+function writeLS(k: string, v: string): void {
+  try {
+    if (v) localStorage.setItem(k, v);
+    else localStorage.removeItem(k);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function SettingsScreen() {
   const s = getSettings();
   const g = { ...DEFAULT_GESTURE_CONFIG, ...s.gestureOverrides };
   const cap = app.foregroundTimerCapabilities();
   const setG = (patch: Partial<typeof g>) => updateSettings({ gestureOverrides: { ...s.gestureOverrides, ...patch } });
   const [endpoint, setEndpoint] = useState(getAnalysisEndpoint() ?? '');
+  const [modelUrl, setModelUrl] = useState(readLS('gst:gesture-model'));
 
   return (
     <div>
@@ -40,8 +57,24 @@ export function SettingsScreen() {
         <NumberRow label="버스트 최대" suffix="ms" min={3000} max={20000} step={500} value={g.maxBurstMs} onChange={(v) => setG({ maxBurstMs: v })} />
         <NumberRow label="카메라 준비 타임아웃" suffix="ms" min={1000} max={15000} step={500} value={g.armingTimeoutMs} onChange={(v) => setG({ armingTimeoutMs: v })} />
         <NumberRow label="최소 손 크기 (정규화)" min={0.04} max={0.25} step={0.01} value={g.minHandSpan} onChange={(v) => setG({ minHandSpan: v })} />
-        <p className="muted small" style={{ marginBottom: 0 }}>
-          웹 첫 시도에는 MediaPipe 모델을 내려받느라 수 초 걸릴 수 있어 준비 타임아웃을 넉넉히 둡니다. 실패 시 자동으로 버튼으로 전환됩니다.
+        <div style={{ marginTop: 10 }}>
+          <Field label="손 인식 모델 URL 재정의 (비우면 기본 MediaPipe 모델)">
+            <input
+              type="text"
+              value={modelUrl}
+              onChange={(e) => setModelUrl(e.target.value)}
+              placeholder="예: /models/hand_landmarker.task 또는 사내 미러 URL"
+            />
+          </Field>
+          <div className="row" style={{ gap: 6, marginTop: 6 }}>
+            <button onClick={() => writeLS('gst:gesture-model', modelUrl.trim())}>저장</button>
+            <button className="ghost" onClick={() => { setModelUrl(''); writeLS('gst:gesture-model', ''); }}>
+              지우기
+            </button>
+          </div>
+        </div>
+        <p className="muted small" style={{ marginBottom: 0, marginTop: 8 }}>
+          WASM 은 <span className="kbd">npm run web</span> 실행 시 <span className="kbd">node_modules</span> 에서 <span className="kbd">public/mediapipe/wasm</span> 로 복사돼 버전이 항상 일치합니다 (MediaPipe {typeof __MEDIAPIPE_VERSION__ !== 'undefined' ? __MEDIAPIPE_VERSION__ : '?'}). 로컬 실패 시 같은 버전 CDN 으로 폴백, GPU→CPU 델리게이트 순으로 재시도합니다. 그래도 실패하면 버튼으로 전환됩니다.
         </p>
       </Card>
 
