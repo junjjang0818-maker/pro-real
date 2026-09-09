@@ -34,6 +34,13 @@ export interface ControllerDeps {
   schedule: (ms: number, fn: () => void) => () => void;
   config?: GestureConfig;
   onStateChange?: (state: GestureState) => void;
+  /**
+   * Optional learned-hand-shape classifier: HandObservation -> 0..5 (fist/1..5),
+   * or null when the pose doesn't confidently match. When it returns a number we
+   * use it INSTEAD of the finger-angle heuristic; when it returns null we fall
+   * back to the heuristic, so calibration is purely additive.
+   */
+  classifyCount?: (obs: HandObservation) => number | null;
 }
 
 export type GestureState =
@@ -197,17 +204,25 @@ export class GestureController {
       return;
     }
 
-    const fc = countExtendedFingers(obs, {
-      minPresence: this.cfg.minConfidence,
-      minHandSpan: this.cfg.minHandSpan,
-      extendMargin: this.cfg.extendMargin,
-    });
-    if (!fc.usable) {
-      this.candidate = null; // unusable frame breaks the streak
-      return;
+    // learned-shape classifier first; heuristic fallback when it isn't confident
+    let count: number;
+    const learned = this.deps.classifyCount?.(obs);
+    if (learned != null) {
+      count = learned;
+    } else {
+      const fc = countExtendedFingers(obs, {
+        minPresence: this.cfg.minConfidence,
+        minHandSpan: this.cfg.minHandSpan,
+        extendMargin: this.cfg.extendMargin,
+      });
+      if (!fc.usable) {
+        this.candidate = null; // unusable frame breaks the streak
+        return;
+      }
+      count = fc.count;
     }
 
-    const signal = this.signalFor(kind, fc.count);
+    const signal = this.signalFor(kind, count);
     if (signal == null) {
       this.candidate = null;
       return;

@@ -1,12 +1,18 @@
 import { useEffect, useReducer } from 'react';
 import { app, subjects, subscribeSettings } from './appInstance';
+import { subscribeCalibration } from './calibration';
 
-/** Re-render on any store / subjects / settings change, plus a wall tick so the
- *  live elapsed time (always derived from timestamps) stays fresh. */
+/** Re-render on any store / subjects / settings / calibration change, plus a
+ *  wall tick so the live elapsed time (always derived from timestamps) stays fresh. */
 export function useAppSync(tickMs = 500): void {
   const [, bump] = useReducer((n: number) => n + 1, 0);
   useEffect(() => {
-    const unsubs = [app.store.subscribe(bump), subjects.subscribe(bump), subscribeSettings(bump)];
+    const unsubs = [
+      app.store.subscribe(bump),
+      subjects.subscribe(bump),
+      subscribeSettings(bump),
+      subscribeCalibration(bump),
+    ];
     const id = setInterval(bump, tickMs);
     return () => {
       for (const u of unsubs) u();
