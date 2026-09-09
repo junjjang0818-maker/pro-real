@@ -6,12 +6,16 @@ import type { KeyValueStore } from '@app/native/ports';
  * derivations as a param), so the web demo owns them here — same shape a real
  * subjects repository would take. Backed by the same KV as the session store.
  */
-const KEY = 'subjects.v1';
+const KEY = 'subjects.v2';
 
+// 손가락 슬롯은 1~5. 한국사는 손가락 슬롯이 없어 버튼(또는 손 모양 학습) 전용.
 const SEED: Subject[] = [
   { id: 'kor', label: '국어', colorToken: '#e0a54a', gestureFingerCount: 1, weeklyTargetMs: 5 * 3600_000, archivedAt: null, createdAt: Date.now() },
-  { id: 'eng', label: '영어', colorToken: '#6ea8fe', gestureFingerCount: 2, weeklyTargetMs: 7 * 3600_000, archivedAt: null, createdAt: Date.now() },
-  { id: 'math', label: '수학', colorToken: '#e0685f', gestureFingerCount: 3, weeklyTargetMs: 10 * 3600_000, archivedAt: null, createdAt: Date.now() },
+  { id: 'math', label: '수학', colorToken: '#e0685f', gestureFingerCount: 2, weeklyTargetMs: 8 * 3600_000, archivedAt: null, createdAt: Date.now() },
+  { id: 'eng', label: '영어', colorToken: '#6ea8fe', gestureFingerCount: 3, weeklyTargetMs: 6 * 3600_000, archivedAt: null, createdAt: Date.now() },
+  { id: 'soc', label: '사회', colorToken: '#4ec9a5', gestureFingerCount: 4, weeklyTargetMs: 4 * 3600_000, archivedAt: null, createdAt: Date.now() },
+  { id: 'sci', label: '과학', colorToken: '#b98cff', gestureFingerCount: 5, weeklyTargetMs: 4 * 3600_000, archivedAt: null, createdAt: Date.now() },
+  { id: 'hist', label: '한국사', colorToken: '#e88fb1', gestureFingerCount: null, weeklyTargetMs: 3 * 3600_000, archivedAt: null, createdAt: Date.now() },
 ];
 
 export interface SubjectsStore {

@@ -8,6 +8,7 @@ import { SystemClock, type Clock } from '../core/time/clock';
 import { SessionStore, type Persistence, type StoreConfig } from '../core/store';
 import { InputBus, intentToCommand, type InputIntent } from '../input/intent';
 import { GestureController, type CameraSource } from '../features/gesture/GestureController';
+import type { HandObservation } from '../features/gesture/fingerCounting';
 import { DEFAULT_GESTURE_CONFIG, type GestureConfig } from '../features/gesture/gestureConfig';
 import { isPaused } from '../core/session/elapsed';
 import type { NativeClockBridge, ForegroundTimer, Haptics } from '../native/ports';
@@ -20,6 +21,8 @@ export interface Adapters {
   haptics: Haptics;
   now?: () => number;
   schedule?: (ms: number, fn: () => void) => () => void;
+  /** optional learned-hand-shape classifier (see ControllerDeps.classifyCount). */
+  classifyCount?: (obs: HandObservation) => number | null;
 }
 
 export interface AppConfig extends StoreConfig {
@@ -53,6 +56,7 @@ export function createApp(adapters: Adapters, config: AppConfig): App {
         return () => clearTimeout(h);
       }),
     config: config.gesture ?? DEFAULT_GESTURE_CONFIG,
+    classifyCount: adapters.classifyCount,
   });
 
   // the ONE subscriber that turns every input (button/gesture/voice) into a command

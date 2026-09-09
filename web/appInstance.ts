@@ -13,6 +13,7 @@ import { isPaused } from '@app/core/session/elapsed';
 import { webCameraProxy } from './webCameraProxy';
 import { createSubjectsStore } from './subjectsStore';
 import { createGestureWatch } from './gestureWatch';
+import { templateClassifyCount } from './calibration';
 
 const kv = webKeyValueStore();
 
@@ -103,6 +104,12 @@ export function updateSettings(patch: Partial<WebSettings>): void {
   for (const l of [...settingsListeners]) l();
 }
 
+/** re-evaluate whether the always-on watcher should be running (call after
+ *  temporarily stopping it, e.g. while the calibration modal owns the camera). */
+export function refreshGestureWatch(): void {
+  syncGestureWatch();
+}
+
 let watchStarting = false;
 function syncGestureWatch(): void {
   if (typeof window === 'undefined') return;
@@ -126,6 +133,7 @@ export const app = createApp(
     camera: cameraProxy.source,
     foregroundTimer: webForegroundTimer(),
     haptics: webHaptics(),
+    classifyCount: (obs) => templateClassifyCount(obs),
   },
   {
     dailyGoalMs: settings.dailyGoalMin * 60_000,
@@ -156,6 +164,7 @@ export const gestureWatch = createGestureWatch({
   },
   getConfig: () => ({ ...DEFAULT_GESTURE_CONFIG, ...settings.gestureOverrides }),
   previewContainer: () => autoPreviewEl,
+  classifyCount: (obs) => templateClassifyCount(obs),
 });
 
 // surface a needs-confirmation recovery to the UI

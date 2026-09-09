@@ -12,7 +12,7 @@ export function seedDemoData(): void {
   const tz = -new Date().getTimezoneOffset();
   const now = Date.now();
   const dayMs = 86_400_000;
-  const subjectsCycle = ['kor', 'eng', 'math'];
+  const subjectsCycle = ['kor', 'math', 'eng', 'soc', 'sci', 'hist'];
   const sessions: Session[] = [];
   let n = 0;
 
@@ -24,7 +24,7 @@ export function seedDemoData(): void {
     for (let b = 0; b < blocks; b++) {
       const startWall = dayStart - (10 - b * 2) * 3600_000 + (d % 4) * 5 * 60_000;
       const durMin = [35, 45, 40, 30][(d + b) % 4]!;
-      const subjectId = subjectsCycle[(d + b) % 3]!;
+      const subjectId = subjectsCycle[(d + b) % subjectsCycle.length]!;
       const gesture = (d + b) % 3 === 0;
       sessions.push({
         id: `seed_${++n}`,

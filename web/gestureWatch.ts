@@ -30,6 +30,8 @@ export interface GestureWatchDeps {
   onStop: () => void;
   getConfig: () => GestureConfig;
   previewContainer: () => HTMLElement | null;
+  /** learned-hand-shape classifier: obs -> 0..5, or null to fall back to heuristic. */
+  classifyCount?: (obs: HandObservation) => number | null;
 }
 
 export function createGestureWatch(deps: GestureWatchDeps) {
@@ -70,14 +72,19 @@ export function createGestureWatch(deps: GestureWatchDeps) {
     let count: number | null = null;
     let signal: number | null = null;
     if (obs) {
-      const fc = countExtendedFingers(obs, {
-        minPresence: c.minConfidence,
-        minHandSpan: c.minHandSpan,
-        extendMargin: c.extendMargin,
-      });
-      if (fc.usable) {
-        count = fc.count;
-        signal = target === 'start' ? (fc.count >= c.openPalmMinFingers ? 1 : null) : fc.count === 0 ? 1 : null;
+      const learned = deps.classifyCount?.(obs);
+      if (learned != null) {
+        count = learned;
+      } else {
+        const fc = countExtendedFingers(obs, {
+          minPresence: c.minConfidence,
+          minHandSpan: c.minHandSpan,
+          extendMargin: c.extendMargin,
+        });
+        if (fc.usable) count = fc.count;
+      }
+      if (count != null) {
+        signal = target === 'start' ? (count >= c.openPalmMinFingers ? 1 : null) : count === 0 ? 1 : null;
       }
     }
 

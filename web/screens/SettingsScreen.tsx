@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { app, getSettings, updateSettings } from '../appInstance';
-import { Card, NumberRow, Field, Toggle } from '../ui';
+import { Card, NumberRow, Field, Toggle, Tag } from '../ui';
 import { DEFAULT_GESTURE_CONFIG } from '@app/features/gesture/gestureConfig';
 import { getAnalysisEndpoint, setAnalysisEndpoint } from '../analysis';
 import { seedDemoData, resetDemoData } from '../seed';
+import { CalibrateModal } from '../CalibrateModal';
+import { calibrationReady, labelSampleCount, CALIB_LABELS } from '../calibration';
 
 function readLS(k: string): string {
   try {
@@ -28,10 +30,29 @@ export function SettingsScreen() {
   const setG = (patch: Partial<typeof g>) => updateSettings({ gestureOverrides: { ...s.gestureOverrides, ...patch } });
   const [endpoint, setEndpoint] = useState(getAnalysisEndpoint() ?? '');
   const [modelUrl, setModelUrl] = useState(readLS('gst:gesture-model'));
+  const [calib, setCalib] = useState(false);
+  const calibDone = calibrationReady();
+  const calibProgress = CALIB_LABELS.reduce((n, l) => n + Math.min(1, labelSampleCount(l) / 3), 0);
 
   return (
     <div>
       <div className="h1">설정</div>
+
+      <Card
+        title="손 모양 학습 (캘리브레이션)"
+        right={
+          calibDone ? <Tag tone="on">적용됨</Tag> : <Tag>{Math.round((calibProgress / CALIB_LABELS.length) * 100)}%</Tag>
+        }
+      >
+        <p className="muted small" style={{ marginTop: 0 }}>
+          내 손 모양(주먹·손가락 1~5개)을 직접 학습시키면, 고정 각도 휴리스틱 대신 <b>학습된 모양 기준</b>으로 인식합니다. 손 크기·손가락 길이·각도에 더 강합니다. 6단계를 모두 채우면 자동 적용됩니다.
+        </p>
+        <div className="row wrap" style={{ gap: 8 }}>
+          <button className="primary" onClick={() => setCalib(true)}>
+            {calibDone ? '다시 학습' : '손 모양 학습 시작'}
+          </button>
+        </div>
+      </Card>
 
       <Card title="출석 / 스트릭">
         <NumberRow label="하루 목표 학습시간" suffix="분" min={10} max={240} step={5} value={s.dailyGoalMin} onChange={(v) => updateSettings({ dailyGoalMin: v })} />
@@ -125,6 +146,8 @@ export function SettingsScreen() {
           </button>
         </div>
       </Card>
+
+      {calib && <CalibrateModal onClose={() => setCalib(false)} />}
     </div>
   );
 }
