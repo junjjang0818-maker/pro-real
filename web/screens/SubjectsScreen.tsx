@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { subjects } from '../appInstance';
 import { Card, Field, Tag } from '../ui';
+import type { Subject } from '@app/core/subjects';
 
 const COLORS = ['#e0685f', '#6ea8fe', '#4ec9a5', '#e0a54a', '#b98cff'];
 
@@ -47,27 +48,51 @@ export function SubjectsScreen() {
       </Card>
 
       <Card title={`과목 ${list.filter((s) => !s.archivedAt).length}개`}>
-        {list.map((s) => (
-          <div
-            key={s.id}
-            className="row spread"
-            style={{ padding: '9px 0', borderBottom: '1px solid var(--line)', opacity: s.archivedAt ? 0.4 : 1 }}
-          >
-            <span className="row" style={{ gap: 8 }}>
-              <span style={{ width: 10, height: 10, borderRadius: 3, background: s.colorToken, display: 'inline-block' }} />
-              <strong>{s.label}</strong>
-              {s.gestureFingerCount && <Tag>손가락 {s.gestureFingerCount}</Tag>}
-            </span>
-            <span className="row" style={{ gap: 10 }}>
-              <span className="muted small">{Math.round(s.weeklyTargetMs / 3600_000)}시간/주</span>
-              {!s.archivedAt && (
-                <button className="ghost small" onClick={() => subjects.archive(s.id)}>
-                  보관
-                </button>
-              )}
-            </span>
-          </div>
-        ))}
+        {list.map((s) => {
+          const taken = new Set(
+            list.filter((x) => x.id !== s.id && x.archivedAt == null && x.gestureFingerCount).map((x) => x.gestureFingerCount),
+          );
+          return (
+            <div
+              key={s.id}
+              className="row spread wrap"
+              style={{ padding: '9px 0', borderBottom: '1px solid var(--line)', opacity: s.archivedAt ? 0.4 : 1, gap: 8 }}
+            >
+              <span className="row" style={{ gap: 8 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: s.colorToken, display: 'inline-block' }} />
+                <strong>{s.label}</strong>
+              </span>
+              <span className="row" style={{ gap: 10 }}>
+                {!s.archivedAt && (
+                  <label className="row small muted" style={{ gap: 4 }}>
+                    손가락
+                    <select
+                      value={s.gestureFingerCount ?? 0}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        subjects.update(s.id, { gestureFingerCount: (v === 0 ? null : v) as Subject['gestureFingerCount'] });
+                      }}
+                    >
+                      <option value={0}>없음</option>
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <option key={n} value={n} disabled={taken.has(n as 1 | 2 | 3 | 4 | 5)}>
+                          {n}
+                          {taken.has(n as 1 | 2 | 3 | 4 | 5) ? ' (사용중)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <span className="muted small">{Math.round(s.weeklyTargetMs / 3600_000)}시간/주</span>
+                {!s.archivedAt && (
+                  <button className="ghost small" onClick={() => subjects.archive(s.id)}>
+                    보관
+                  </button>
+                )}
+              </span>
+            </div>
+          );
+        })}
       </Card>
 
       <p className="muted small">
