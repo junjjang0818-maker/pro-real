@@ -76,9 +76,19 @@ export function prewarmGestureModel(opts: { wasmBase?: string; wasmCdn?: string;
   prewarming = loadLandmarker(wasmBases, models)
     .then((lm) => {
       cached = { key: cacheKey(wasmBases, models), lm };
+      // eslint-disable-next-line no-console
+      console.info('[gesture] MediaPipe Hand Landmarker loaded', { wasm: wasmBases[0], models });
     })
     .catch((e) => {
       lastLoadError = describe(e);
+      // eslint-disable-next-line no-console
+      console.error(
+        '[gesture] MediaPipe failed to load — gestures will fall back to buttons.\n' +
+          `  ${lastLoadError}\n` +
+          `  tried wasm: ${wasmBases.join(' , ')}\n` +
+          `  tried model: ${models.join(' , ')}\n` +
+          '  fix: run `npm run web` (copies local WASM + model), or drop hand_landmarker.task in public/mediapipe/, or set a mirror URL in 설정.',
+      );
     })
     .finally(() => {
       prewarming = null;
