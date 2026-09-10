@@ -14,7 +14,7 @@ const PROMPT: Record<AttemptKind, string> = {
 
 const RETRYABLE = new Set(['error', 'timeout', 'degraded', 'no-gesture']);
 
-export function GestureOverlay({ kind, onResult }: { kind: AttemptKind; onResult: (r: AttemptResult) => void }) {
+export function GesturePanel({ kind, onResult }: { kind: AttemptKind; onResult: (r: AttemptResult) => void }) {
   const previewRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<GestureState>('arming');
   const [count, setCount] = useState<number | null>(null);
@@ -86,8 +86,11 @@ export function GestureOverlay({ kind, onResult }: { kind: AttemptKind; onResult
   const loadErr = done && done.outcome === 'fallback' ? lastGestureLoadError() : null;
 
   return (
-    <div className="overlay">
-      <div className="sheet col" style={{ gap: 14 }}>
+    <div className="col" style={{ gap: 12, marginTop: 6 }}>
+      <div
+        className="col"
+        style={{ gap: 12, background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 12, padding: 12 }}
+      >
         {done?.outcome === 'confirmed' ? (
           <div className="center col" style={{ gap: 8, padding: '18px 0' }}>
             <div style={{ fontSize: 44 }}>✓</div>
@@ -135,7 +138,7 @@ export function GestureOverlay({ kind, onResult }: { kind: AttemptKind; onResult
             <div
               ref={previewRef}
               className="center"
-              style={{ minHeight: 180, background: 'var(--panel-2)', borderRadius: 12, position: 'relative' }}
+              style={{ minHeight: 150, background: 'var(--panel)', borderRadius: 10, position: 'relative', overflow: 'hidden' }}
             >
               {state === 'arming' && (
                 <span className="muted small">

@@ -10,7 +10,7 @@ import {
 } from '../appInstance';
 import { Card, Tag, Bar } from '../ui';
 import { mmss, mmssCs, hm } from '../hooks';
-import { GestureOverlay } from '../GestureOverlay';
+import { GesturePanel } from '../GesturePanel';
 import { computeElapsed, isPaused } from '@app/core/session/elapsed';
 import { subjectByFingerCount } from '@app/core/subjects';
 import type { AttemptKind, AttemptResult } from '@app/features/gesture/GestureController';
@@ -159,7 +159,7 @@ export function TimerScreen() {
               <button className="primary" onClick={() => emitStart(subjectId, 'button')}>
                 ▶ 시작
               </button>
-              {!auto && (
+              {!auto && !gesture && (
                 <>
                   <button onClick={() => setGesture({ kind: 'start', then: (r) => { setGesture(null); if (r.outcome === 'confirmed') emitStart(subjectId, 'gesture'); } })}>
                     ✋ 제스처로 시작
@@ -168,6 +168,7 @@ export function TimerScreen() {
                 </>
               )}
             </div>
+            {gesture && <GesturePanel kind={gesture.kind} onResult={gesture.then} />}
             {auto && <AutoGesturePanel target="start" />}
           </div>
         ) : (
@@ -179,7 +180,7 @@ export function TimerScreen() {
               <button className="bad" onClick={() => app.bus.emit({ purpose: 'stop', source: 'button' })}>
                 ■ 정지
               </button>
-              {!auto && (
+              {!auto && !gesture && (
                 <>
                   <button
                     className="bad ghost"
@@ -201,6 +202,7 @@ export function TimerScreen() {
                 </>
               )}
             </div>
+            {gesture && <GesturePanel kind={gesture.kind} onResult={gesture.then} />}
             {auto && <AutoGesturePanel target="stop" />}
           </div>
         )}
@@ -220,7 +222,6 @@ export function TimerScreen() {
         </div>
       </Card>
 
-      {gesture && <GestureOverlay kind={gesture.kind} onResult={gesture.then} />}
     </div>
   );
 }
