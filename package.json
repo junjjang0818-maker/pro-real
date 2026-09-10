@@ -6,6 +6,7 @@
   "main": "index.ts",
   "scripts": {
     "prep:web": "node scripts/prep-web.mjs",
+    "diagnose": "node scripts/diagnose.mjs",
     "dev": "npm run prep:web && vite",
     "web": "npm run dev",
     "build": "npm run prep:web && vite build",
