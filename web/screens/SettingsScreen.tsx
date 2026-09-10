@@ -4,7 +4,7 @@ import { Card, NumberRow, Field, Toggle, Tag } from '../ui';
 import { DEFAULT_GESTURE_CONFIG } from '@app/features/gesture/gestureConfig';
 import { getAnalysisEndpoint, setAnalysisEndpoint } from '../analysis';
 import { seedDemoData, resetDemoData } from '../seed';
-import { CalibrateModal } from '../CalibrateModal';
+import { CalibratePanel } from '../CalibratePanel';
 import { calibrationReady, calibrationTrained, labelSampleCount, CALIB_LABELS } from '../calibration';
 
 function readLS(k: string): string {
@@ -51,14 +51,20 @@ export function SettingsScreen() {
           )
         }
       >
-        <p className="muted small" style={{ marginTop: 0 }}>
-          내 손 모양(주먹·손가락 1~5)을 6단계로 등록하면, 그 샘플로 <b>브라우저에서 작은 신경망(42→24→6)을 학습</b>시켜 고정 각도 휴리스틱 대신 <b>학습된 모양 기준</b>으로 인식합니다. 손 크기·손가락 길이·각도에 강합니다. TensorFlow·서버·GPU 없이 순수 JS, 몇 초 소요.
-        </p>
-        <div className="row wrap" style={{ gap: 8 }}>
-          <button className="primary" onClick={() => setCalib(true)}>
-            {trained ? '다시 학습' : enrolled ? '학습 이어서' : '손 모양 학습 시작'}
-          </button>
-        </div>
+        {calib ? (
+          <CalibratePanel onClose={() => setCalib(false)} />
+        ) : (
+          <>
+            <p className="muted small" style={{ marginTop: 0 }}>
+              내 손 모양(주먹·손가락 1~5)을 6단계로 등록하면, 그 샘플로 <b>브라우저에서 작은 신경망(42→24→6)을 학습</b>시켜 고정 각도 휴리스틱 대신 <b>학습된 모양 기준</b>으로 인식합니다. 손 크기·손가락 길이·각도에 강합니다. TensorFlow·서버·GPU 없이 순수 JS, 몇 초 소요.
+            </p>
+            <div className="row wrap" style={{ gap: 8 }}>
+              <button className="primary" onClick={() => setCalib(true)}>
+                {trained ? '다시 학습' : enrolled ? '학습 이어서' : '손 모양 학습 시작'}
+              </button>
+            </div>
+          </>
+        )}
       </Card>
 
       <Card title="출석 / 스트릭">
@@ -154,7 +160,6 @@ export function SettingsScreen() {
         </div>
       </Card>
 
-      {calib && <CalibrateModal onClose={() => setCalib(false)} />}
     </div>
   );
 }

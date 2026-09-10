@@ -47,7 +47,7 @@ const EMITS_OPTIONS: { label: string; value: CustomPose['emits'] }[] = [
 
 type Phase = 'enroll' | 'custom' | 'train';
 
-export function CalibrateModal({ onClose }: { onClose: () => void }) {
+export function CalibratePanel({ onClose }: { onClose: () => void }) {
   const previewRef = useRef<HTMLDivElement>(null);
   const [phase, setPhase] = useState<Phase>('enroll');
   const [step, setStep] = useState(0);
@@ -172,9 +172,8 @@ export function CalibrateModal({ onClose }: { onClose: () => void }) {
   const curCount = labelSampleCount(cur.label);
 
   return (
-    <div className="overlay">
-      <div className="sheet col" style={{ gap: 12, width: 'min(460px, 100%)', position: 'relative' }}>
-        {banner && (
+    <div className="col" style={{ gap: 12, position: 'relative' }}>
+      {banner && (
           <div
             style={{
               position: 'absolute',
@@ -471,7 +470,6 @@ export function CalibrateModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
       </div>
-    </div>
   );
 }
 
