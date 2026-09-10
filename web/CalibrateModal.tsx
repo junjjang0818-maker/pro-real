@@ -1,6 +1,6 @@
 import React, { useEffect, useReducer, useRef, useState } from 'react';
 import { Bar } from './ui';
-import { HandPoseIcon } from './HandPoseIcon';
+import { HandPoseIcon, type Bool5 } from './HandPoseIcon';
 import { gestureWatch, refreshGestureWatch } from './appInstance';
 import { webcamGestureSource } from '@app/native/web/webcamGestureSource';
 import { countExtendedFingers, type HandObservation } from '@app/features/gesture/fingerCounting';
@@ -19,18 +19,20 @@ import {
   removeCustomPose,
   recordCustomSample,
   customSampleCount,
+  subscribeCalibration,
   type CustomPose,
 } from './calibration';
 
-type Bool5 = [boolean, boolean, boolean, boolean, boolean];
+const FULL = SAMPLES_PER_LABEL; // 12 — a pose is "학습됨" when it has this many samples
+const MIN = 3; // minimum to count toward training
 
 const POSES: { label: string; title: string; hint: string; fingers: Bool5 }[] = [
-  { label: '0', title: '주먹', hint: '모든 손가락을 접으세요', fingers: [false, false, false, false, false] },
+  { label: '0', title: '주먹', hint: '다섯 손가락을 모두 접으세요', fingers: [false, false, false, false, false] },
   { label: '1', title: '손가락 1개', hint: '검지만 펴세요', fingers: [false, true, false, false, false] },
-  { label: '2', title: '손가락 2개 (브이)', hint: '검지·중지를 펴세요', fingers: [false, true, true, false, false] },
+  { label: '2', title: '손가락 2개 (브이)', hint: '검지와 중지를 펴세요', fingers: [false, true, true, false, false] },
   { label: '3', title: '손가락 3개', hint: '검지·중지·약지를 펴세요', fingers: [false, true, true, true, false] },
   { label: '4', title: '손가락 4개', hint: '엄지만 접으세요', fingers: [false, true, true, true, true] },
-  { label: '5', title: '손바닥 (5개)', hint: '모든 손가락을 펴세요', fingers: [true, true, true, true, true] },
+  { label: '5', title: '손바닥 (5개)', hint: '다섯 손가락을 모두 펴세요', fingers: [true, true, true, true, true] },
 ];
 
 const EMITS_OPTIONS: { label: string; value: CustomPose['emits'] }[] = [
@@ -42,7 +44,6 @@ const EMITS_OPTIONS: { label: string; value: CustomPose['emits'] }[] = [
   { label: '과목 4', value: 4 },
   { label: '과목 5', value: 5 },
 ];
-const emitsText = (n: number) => EMITS_OPTIONS.find((o) => o.value === n)?.label ?? String(n);
 
 type Phase = 'enroll' | 'custom' | 'train';
 
@@ -54,34 +55,42 @@ export function CalibrateModal({ onClose }: { onClose: () => void }) {
   const [errMsg, setErrMsg] = useState('');
   const [liveCount, setLiveCount] = useState<number | null>(null);
   const [autoCapture, setAutoCapture] = useState(true);
-  const [, bump] = useReducer((n: number) => n + 1, 0);
+  const [banner, setBanner] = useState<string | null>(null);
+  const [tick, bump] = useReducer((n: number) => n + 1, 0);
 
-  // custom-phase state
   const [activeCustom, setActiveCustom] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [newEmits, setNewEmits] = useState<CustomPose['emits']>(1);
 
-  // train-phase state
   const [training, setTraining] = useState(false);
   const [trainProg, setTrainProg] = useState(0);
   const [trainResult, setTrainResult] = useState<{ ok: boolean; accuracy: number; reason?: string } | null>(null);
 
-  // refs for the frame loop (avoids stale closures)
+  // frame-loop targets (avoid stale closures)
   const captureTarget = useRef<{ kind: 'label'; label: string } | { kind: 'custom'; id: string } | null>(null);
   const autoRef = useRef(autoCapture);
   autoRef.current = autoCapture;
   const lastCapRef = useRef(0);
   const lastObsRef = useRef<HandObservation | null>(null);
+  const armedRef = useRef(true); // is the current enroll step armed for auto-advance?
 
-  // keep captureTarget in sync with the current phase/step/activeCustom
   useEffect(() => {
-    if (phase === 'enroll') captureTarget.current = { kind: 'label', label: POSES[step]!.label };
-    else if (phase === 'custom' && activeCustom) captureTarget.current = { kind: 'custom', id: activeCustom };
-    else captureTarget.current = null;
+    if (phase === 'enroll') {
+      captureTarget.current = { kind: 'label', label: POSES[step]!.label };
+      armedRef.current = labelSampleCount(POSES[step]!.label) < FULL;
+    } else if (phase === 'custom' && activeCustom) {
+      captureTarget.current = { kind: 'custom', id: activeCustom };
+    } else {
+      captureTarget.current = null;
+    }
   }, [phase, step, activeCustom]);
 
+  // re-render on any calibration store change (captures, custom edits, resets)
+  useEffect(() => subscribeCalibration(bump), []);
+
+  // camera lifecycle — the modal owns it while open
   useEffect(() => {
-    gestureWatch.stop(); // the modal owns the camera while it's open
+    gestureWatch.stop();
     const src = webcamGestureSource({ previewContainer: previewRef.current });
     let alive = true;
     const off = src.onFrame((obs: HandObservation | null) => {
@@ -92,12 +101,11 @@ export function CalibrateModal({ onClose }: { onClose: () => void }) {
       setLiveCount(fc.usable ? fc.count : null);
 
       const tgt = captureTarget.current;
-      if (!tgt || !autoRef.current || performance.now() - lastCapRef.current < 160) return;
-      const cap =
-        tgt.kind === 'label'
-          ? { current: labelSampleCount(tgt.label), record: () => recordSample(tgt.label, obs) }
-          : { current: customSampleCount(tgt.id), record: () => recordCustomSample(tgt.id, obs) };
-      if (cap.current < SAMPLES_PER_LABEL && cap.record()) {
+      if (!tgt || !autoRef.current || performance.now() - lastCapRef.current < 150) return;
+      const cur = tgt.kind === 'label' ? labelSampleCount(tgt.label) : customSampleCount(tgt.id);
+      if (cur >= FULL) return;
+      const ok = tgt.kind === 'label' ? recordSample(tgt.label, obs) : recordCustomSample(tgt.id, obs);
+      if (ok) {
         lastCapRef.current = performance.now();
         bump();
       }
@@ -118,18 +126,29 @@ export function CalibrateModal({ onClose }: { onClose: () => void }) {
     };
   }, []);
 
-  const cur = POSES[step]!;
-  const count = labelSampleCount(cur.label);
+  // completion watcher: pose full -> "학습 완료" banner -> auto-advance
+  useEffect(() => {
+    if (phase !== 'enroll' || !armedRef.current) return;
+    if (labelSampleCount(POSES[step]!.label) < FULL) return;
+    armedRef.current = false;
+    setBanner('✓ 학습 완료');
+    const t = setTimeout(() => {
+      setBanner(null);
+      goNextIncomplete();
+    }, 1200);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick, step, phase]);
+
+  const doneCount = POSES.filter((p) => labelSampleCount(p.label) >= FULL).length;
   const allEnrolled = calibrationReady();
   const customList = listCustomPoses();
 
-  const runTrain = async () => {
-    setTraining(true);
-    setTrainProg(0);
-    setTrainResult(null);
-    const r = await trainCalibration(setTrainProg);
-    setTraining(false);
-    setTrainResult(r);
+  const goNextIncomplete = () => {
+    for (let i = step + 1; i < POSES.length; i++)
+      if (labelSampleCount(POSES[i]!.label) < FULL) return setStep(i);
+    for (let i = 0; i < step; i++) if (labelSampleCount(POSES[i]!.label) < FULL) return setStep(i);
+    setPhase('custom'); // all six done
   };
 
   const manualCapture = () => {
@@ -140,38 +159,97 @@ export function CalibrateModal({ onClose }: { onClose: () => void }) {
     if (ok) bump();
   };
 
+  const runTrain = async () => {
+    setTraining(true);
+    setTrainProg(0);
+    setTrainResult(null);
+    const r = await trainCalibration(setTrainProg);
+    setTraining(false);
+    setTrainResult(r);
+  };
+
+  const cur = POSES[step]!;
+  const curCount = labelSampleCount(cur.label);
+
   return (
     <div className="overlay">
-      <div className="sheet col" style={{ gap: 12, width: 'min(480px, 100%)' }}>
+      <div className="sheet col" style={{ gap: 12, width: 'min(460px, 100%)', position: 'relative' }}>
+        {banner && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '38%',
+              left: '50%',
+              transform: 'translate(-50%,-50%)',
+              background: 'var(--panel)',
+              border: '2px solid var(--good)',
+              borderRadius: 16,
+              padding: '18px 28px',
+              fontWeight: 800,
+              fontSize: 22,
+              color: 'var(--good)',
+              zIndex: 5,
+              boxShadow: '0 8px 32px rgba(0,0,0,.5)',
+            }}
+          >
+            {banner}
+          </div>
+        )}
         <div className="row spread">
-          <strong>
-            손 모양 학습{' '}
-            {phase === 'enroll' ? `· 기본 ${step + 1}/${POSES.length}` : phase === 'custom' ? '· 커스텀' : '· 신경망 학습'}
-          </strong>
+          <strong>손 모양 학습</strong>
           <button className="ghost small" onClick={onClose}>
             닫기
           </button>
         </div>
 
-        {/* phase tabs */}
-        <div className="row" style={{ gap: 4 }}>
-          {(['enroll', 'custom', 'train'] as const).map((p) => (
-            <button
-              key={p}
-              className={`pill ${phase === p ? 'primary' : ''}`}
-              disabled={p === 'train' && !allEnrolled}
-              onClick={() => setPhase(p)}
-            >
-              {p === 'enroll' ? '기본 6포즈' : p === 'custom' ? `커스텀 (${customList.length})` : '학습'}
-            </button>
-          ))}
+        {/* stepper */}
+        <div className="row" style={{ gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+          {POSES.map((p, i) => {
+            const done = labelSampleCount(p.label) >= FULL;
+            const partial = !done && labelSampleCount(p.label) >= MIN;
+            const active = phase === 'enroll' && i === step;
+            return (
+              <button
+                key={p.label}
+                onClick={() => {
+                  setPhase('enroll');
+                  setStep(i);
+                }}
+                title={p.title}
+                style={{
+                  width: 30,
+                  height: 30,
+                  padding: 0,
+                  borderRadius: 999,
+                  fontWeight: 700,
+                  border: active ? '2px solid var(--accent)' : '1px solid var(--line)',
+                  background: done ? 'var(--good)' : partial ? 'var(--panel-2)' : 'transparent',
+                  color: done ? '#04241c' : 'var(--text)',
+                }}
+              >
+                {done ? '✓' : p.label /* the finger count for this pose */}
+              </button>
+            );
+          })}
+          <span className="grow" />
+          <button className={`pill small ${phase === 'custom' ? 'primary' : ''}`} onClick={() => setPhase('custom')}>
+            커스텀 {customList.length || ''}
+          </button>
+          <button
+            className={`pill small ${phase === 'train' ? 'primary' : ''}`}
+            disabled={!allEnrolled}
+            onClick={() => setPhase('train')}
+          >
+            학습{calibrationTrained() ? ' ✓' : ''}
+          </button>
         </div>
 
-        <div className="row" style={{ gap: 12, alignItems: 'stretch' }}>
+        {/* shared live camera preview (enroll + custom) */}
+        {phase !== 'train' && (
           <div
             ref={previewRef}
             className="center"
-            style={{ flex: 1, minHeight: 170, background: 'var(--panel-2)', borderRadius: 12, position: 'relative', overflow: 'hidden' }}
+            style={{ minHeight: 130, background: 'var(--panel-2)', borderRadius: 12, position: 'relative', overflow: 'hidden' }}
           >
             {status === 'loading' && <span className="muted small">카메라 준비 중…</span>}
             {status === 'error' && (
@@ -180,54 +258,54 @@ export function CalibrateModal({ onClose }: { onClose: () => void }) {
               </span>
             )}
             {status === 'ready' && liveCount != null && (
-              <div style={{ position: 'absolute', right: 10, bottom: 6, fontSize: 28, fontWeight: 800 }}>{liveCount}</div>
+              <div style={{ position: 'absolute', right: 10, bottom: 6, fontSize: 26, fontWeight: 800 }}>{liveCount}</div>
             )}
           </div>
-          {phase === 'enroll' && (
-            <div
-              className="center col"
-              style={{ width: 130, gap: 4, background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 12, padding: 8 }}
-            >
-              <span className="muted small">이 모양</span>
-              <HandPoseIcon fingers={cur.fingers} size={104} />
-            </div>
-          )}
-        </div>
+        )}
 
         {phase === 'enroll' && (
           <>
-            <div className="col" style={{ gap: 4 }}>
-              <div className="row spread">
-                <strong>{cur.title}</strong>
-                <span className="muted small">{count}/{SAMPLES_PER_LABEL} 샘플</span>
+            <div className="row" style={{ gap: 12, alignItems: 'center' }}>
+              <HandPoseIcon fingers={cur.fingers} size={128} />
+              <div className="col grow" style={{ gap: 5 }}>
+                <div style={{ fontWeight: 800, fontSize: 17 }}>{cur.title}</div>
+                <div className="muted small">{cur.hint}</div>
+                <div style={{ marginTop: 2 }}>
+                  <CaptureRing count={curCount} total={FULL} />
+                </div>
               </div>
-              <Bar value={count / SAMPLES_PER_LABEL} tone={count >= 3 ? 'good' : 'accent'} />
-              <span className="muted small">{cur.hint} — 같은 손 모양을 유지하면 자동으로 모읍니다.</span>
             </div>
+
             <label className="row small" style={{ gap: 8 }}>
               <input type="checkbox" checked={autoCapture} onChange={(e) => setAutoCapture(e.target.checked)} />
-              <span>자동 캡처</span>
+              <span>손 모양을 유지하면 자동으로 캡처</span>
             </label>
+
             <div className="row wrap" style={{ gap: 6 }}>
-              <button disabled={status !== 'ready'} onClick={manualCapture}>
+              <button disabled={status !== 'ready' || curCount >= FULL} onClick={manualCapture}>
                 지금 캡처
               </button>
-              <button className="ghost" onClick={() => { clearLabel(cur.label); bump(); }}>
-                이 단계 다시
+              <button
+                className="ghost"
+                onClick={() => {
+                  clearLabel(cur.label);
+                  armedRef.current = true;
+                  bump();
+                }}
+              >
+                이 포즈 다시
               </button>
               <span className="grow" />
               <button disabled={step === 0} onClick={() => setStep((s) => s - 1)}>
                 이전
               </button>
-              {step < POSES.length - 1 ? (
-                <button className="primary" onClick={() => setStep((s) => s + 1)}>
-                  다음
-                </button>
-              ) : (
-                <button className="primary" disabled={!allEnrolled} onClick={() => setPhase('custom')}>
-                  다음: 커스텀
-                </button>
-              )}
+              <button
+                className="primary"
+                disabled={curCount < MIN}
+                onClick={() => (step < POSES.length - 1 ? setStep((s) => s + 1) : setPhase('custom'))}
+              >
+                {step < POSES.length - 1 ? '다음' : '커스텀으로'}
+              </button>
             </div>
           </>
         )}
@@ -235,24 +313,31 @@ export function CalibrateModal({ onClose }: { onClose: () => void }) {
         {phase === 'custom' && (
           <>
             <p className="muted small" style={{ margin: 0 }}>
-              원하는 손 모양을 직접 추가하세요 (예: 따봉 = 세션 시작, 손날 = 정지). 각 포즈에 <b>뜻</b>을 지정하고 샘플을 모으면 학습에 포함됩니다.
+              원하는 손 모양을 직접 추가하세요. 각 포즈에 <b>뜻</b>(세션 시작·정지·과목 1~5)을 지정하고 <b>{FULL}장</b>을 모으면 학습에 포함됩니다.
+              {activeCustom && <b style={{ color: 'var(--accent)' }}> · 지금 캡처 중</b>}
             </p>
 
             {customList.map((c) => {
               const n = customSampleCount(c.id);
+              const capturing = activeCustom === c.id;
               return (
                 <div
                   key={c.id}
                   className="col"
-                  style={{ gap: 6, border: '1px solid var(--line)', borderRadius: 10, padding: 10, background: activeCustom === c.id ? 'var(--panel-2)' : 'transparent' }}
+                  style={{ gap: 6, border: '1px solid var(--line)', borderRadius: 10, padding: 10, background: capturing ? 'var(--panel-2)' : 'transparent' }}
                 >
                   <div className="row spread">
-                    <strong className="small">{c.name}</strong>
+                    <strong className="small">
+                      {c.name} {n >= FULL && <span style={{ color: 'var(--good)' }}>✓</span>}
+                    </strong>
                     <span className="row small" style={{ gap: 6 }}>
                       <select
                         value={c.emits}
-                        onChange={(e) => { updateCustomPose(c.id, { emits: Number(e.target.value) as CustomPose['emits'] }); bump(); }}
-                        style={{ width: 110 }}
+                        onChange={(e) => {
+                          updateCustomPose(c.id, { emits: Number(e.target.value) as CustomPose['emits'] });
+                          bump();
+                        }}
+                        style={{ width: 106 }}
                       >
                         {EMITS_OPTIONS.map((o) => (
                           <option key={o.label} value={o.value}>
@@ -260,22 +345,29 @@ export function CalibrateModal({ onClose }: { onClose: () => void }) {
                           </option>
                         ))}
                       </select>
-                      <button className="ghost small" onClick={() => { removeCustomPose(c.id); if (activeCustom === c.id) setActiveCustom(null); bump(); }}>
+                      <button
+                        className="ghost small"
+                        onClick={() => {
+                          removeCustomPose(c.id);
+                          if (activeCustom === c.id) setActiveCustom(null);
+                          bump();
+                        }}
+                      >
                         삭제
                       </button>
                     </span>
                   </div>
                   <div className="row spread small muted">
-                    <span>{n}/{SAMPLES_PER_LABEL} 샘플</span>
+                    <span>{n}/{FULL} 샘플</span>
                     <button
-                      className={`pill small ${activeCustom === c.id ? 'primary' : ''}`}
+                      className={`pill small ${capturing ? 'primary' : ''}`}
                       disabled={status !== 'ready'}
-                      onClick={() => setActiveCustom(activeCustom === c.id ? null : c.id)}
+                      onClick={() => setActiveCustom(capturing ? null : c.id)}
                     >
-                      {activeCustom === c.id ? '캡처 중지' : n >= SAMPLES_PER_LABEL ? '다시 캡처' : '샘플 캡처'}
+                      {capturing ? '캡처 중지' : n >= FULL ? '다시 캡처' : '샘플 캡처'}
                     </button>
                   </div>
-                  <Bar value={Math.min(1, n / SAMPLES_PER_LABEL)} tone={n >= 3 ? 'good' : 'accent'} />
+                  <Bar value={Math.min(1, n / FULL)} tone={n >= FULL ? 'good' : n >= MIN ? 'accent' : 'warn'} />
                 </div>
               );
             })}
@@ -286,9 +378,9 @@ export function CalibrateModal({ onClose }: { onClose: () => void }) {
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="새 포즈 이름 (예: 따봉)"
-                style={{ flex: 1, minWidth: 120 }}
+                style={{ flex: 1, minWidth: 110 }}
               />
-              <select value={newEmits} onChange={(e) => setNewEmits(Number(e.target.value) as CustomPose['emits'])} style={{ width: 110 }}>
+              <select value={newEmits} onChange={(e) => setNewEmits(Number(e.target.value) as CustomPose['emits'])} style={{ width: 106 }}>
                 {EMITS_OPTIONS.map((o) => (
                   <option key={o.label} value={o.value}>
                     {o.label}
@@ -311,7 +403,7 @@ export function CalibrateModal({ onClose }: { onClose: () => void }) {
             <div className="row">
               <button onClick={() => setPhase('enroll')}>이전</button>
               <span className="grow" />
-              <button className="primary" onClick={() => { setActiveCustom(null); setPhase('train'); }}>
+              <button className="primary" disabled={!allEnrolled} onClick={() => { setActiveCustom(null); setPhase('train'); }}>
                 다음: 학습
               </button>
             </div>
@@ -321,7 +413,7 @@ export function CalibrateModal({ onClose }: { onClose: () => void }) {
         {phase === 'train' && (
           <>
             <p className="muted small" style={{ margin: 0 }}>
-              기본 6포즈{customList.length ? ` + 커스텀 ${customList.length}개` : ''}를 작은 신경망(42→24→N)에 몇 초간 학습시킵니다. 전부 브라우저에서 실행됩니다.
+              기본 6포즈{customList.length ? ` + 커스텀 ${customList.length}개` : ''}를 작은 신경망에 몇 초간 학습시킵니다. 전부 브라우저에서 실행됩니다.
             </p>
             {training && (
               <div className="col" style={{ gap: 4 }}>
@@ -329,49 +421,96 @@ export function CalibrateModal({ onClose }: { onClose: () => void }) {
                 <span className="muted small center">학습 중… {Math.round(trainProg * 100)}%</span>
               </div>
             )}
-            {trainResult && (
-              <div className="col center" style={{ gap: 6, padding: '6px 0' }}>
-                {trainResult.ok ? (
-                  <>
-                    <div style={{ fontSize: 30 }}>✓</div>
-                    <div style={{ fontWeight: 700 }}>학습 완료 · 학습 정확도 {Math.round(trainResult.accuracy * 100)}%</div>
-                    <div className="muted small">이제 인식이 학습된 신경망을 사용합니다.</div>
-                  </>
-                ) : (
-                  <div className="small" style={{ color: 'var(--bad)' }}>{trainResult.reason ?? '학습 실패'}</div>
-                )}
-              </div>
-            )}
+            {trainResult &&
+              (trainResult.ok ? (
+                <div className="col center" style={{ gap: 6, padding: '10px 0' }}>
+                  <div style={{ fontSize: 34 }}>✓</div>
+                  <div style={{ fontWeight: 800 }}>학습 완료</div>
+                  <div className="muted small">학습 정확도 {Math.round(trainResult.accuracy * 100)}% · 이제 학습된 신경망으로 인식합니다.</div>
+                </div>
+              ) : (
+                <div className="small center" style={{ color: 'var(--bad)' }}>{trainResult.reason ?? '학습 실패'}</div>
+              ))}
             <div className="row wrap" style={{ gap: 6 }}>
               <button onClick={() => setPhase('custom')} disabled={training}>
                 이전
               </button>
               <span className="grow" />
-              {!trainResult?.ok ? (
-                <button className="primary" onClick={runTrain} disabled={training}>
-                  {training ? '학습 중…' : calibrationTrained() ? '다시 학습' : '학습 시작'}
-                </button>
-              ) : (
+              {trainResult?.ok ? (
                 <button className="good" onClick={onClose}>
                   완료
+                </button>
+              ) : (
+                <button className="primary" onClick={runTrain} disabled={training}>
+                  {training ? '학습 중…' : calibrationTrained() ? '다시 학습' : '학습 시작'}
                 </button>
               )}
             </div>
           </>
         )}
 
-        <div className="row spread small muted">
+        <div className="row spread small muted" style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
           <span>
-            {calibrationTrained()
-              ? `신경망 학습됨${customList.length ? ` · 커스텀 ${customList.length}` : ''} — 학습된 모양으로 인식 중`
-              : allEnrolled
-                ? '샘플 준비 완료 — 학습 단계에서 신경망을 학습시키세요'
-                : '기본 6포즈를 각각 3장 이상 모으세요'}
+            기본 {doneCount}/6 학습됨
+            {customList.length ? ` · 커스텀 ${customList.filter((c) => customSampleCount(c.id) >= FULL).length}/${customList.length}` : ''}
+            {calibrationTrained() ? ' · 신경망 적용됨' : allEnrolled ? ' · 학습 대기' : ''}
           </span>
-          <button className="ghost small" onClick={() => { clearAllCalibration(); bump(); setStep(0); setPhase('enroll'); setTrainResult(null); setActiveCustom(null); }}>
+          <button
+            className="ghost small"
+            onClick={() => {
+              clearAllCalibration();
+              armedRef.current = true;
+              setStep(0);
+              setPhase('enroll');
+              setTrainResult(null);
+              setActiveCustom(null);
+              bump();
+            }}
+          >
             전체 초기화
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** circular "hold to fill" sample counter. */
+function CaptureRing({ count, total }: { count: number; total: number }) {
+  const r = 28;
+  const c = 2 * Math.PI * r;
+  const frac = Math.min(1, count / total);
+  const done = count >= total;
+  return (
+    <div style={{ position: 'relative', width: 72, height: 72, flex: '0 0 auto' }}>
+      <svg viewBox="0 0 72 72" width="72" height="72">
+        <circle cx="36" cy="36" r={r} fill="none" stroke="var(--line)" strokeWidth="7" />
+        <circle
+          cx="36"
+          cy="36"
+          r={r}
+          fill="none"
+          stroke={done ? 'var(--good)' : 'var(--accent)'}
+          strokeWidth="7"
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - frac)}
+          transform="rotate(-90 36 36)"
+        />
+      </svg>
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontWeight: 800,
+          fontSize: 13,
+          color: done ? 'var(--good)' : 'var(--text)',
+        }}
+      >
+        {done ? '완료' : `${count}/${total}`}
       </div>
     </div>
   );

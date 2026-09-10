@@ -1,66 +1,61 @@
 import React from 'react';
 
-/**
- * Schematic hand diagram so the user can SEE which shape to make.
- * `fingers` = [thumb, index, middle, ring, pinky] — true = extended.
- */
-export function HandPoseIcon({
-  fingers,
-  size = 120,
-}: {
-  fingers: [boolean, boolean, boolean, boolean, boolean];
-  size?: number;
-}) {
-  const [thumb, index, middle, ring, pinky] = fingers;
-  const up = 'var(--accent)';
-  const down = 'var(--panel-2)';
-  const line = 'var(--line)';
+export type Bool5 = [boolean, boolean, boolean, boolean, boolean]; // thumb, index, middle, ring, pinky
 
-  // 4 straight fingers above the palm
-  const cols = [
-    { x: 30, tall: 6, ext: index }, // index
-    { x: 43.5, tall: 2, ext: middle }, // middle (tallest)
-    { x: 57, tall: 6, ext: ring }, // ring
-    { x: 69.5, tall: 12, ext: pinky }, // pinky (shortest)
+/**
+ * Large schematic hand so the user can clearly SEE the shape to make.
+ * Extended fingers are drawn tall + accent-coloured; curled ones are short stubs.
+ */
+export function HandPoseIcon({ fingers, size = 168 }: { fingers: Bool5; size?: number }) {
+  const [thumb, index, middle, ring, pinky] = fingers;
+  const UP = 'var(--accent)';
+  const DOWN = 'var(--panel-2)';
+  const LINE = 'var(--line)';
+
+  // 4 straight fingers: x-centre, extended-top-y (smaller = taller), width
+  const F = [
+    { x: 34, top: index ? 18 : 46, ext: index },
+    { x: 47, top: middle ? 10 : 46, ext: middle }, // middle tallest
+    { x: 60, top: ring ? 18 : 46, ext: ring },
+    { x: 72, top: pinky ? 26 : 46, ext: pinky }, // pinky shortest
   ];
+  const FW = 10;
 
   return (
-    <svg viewBox="0 0 100 100" width={size} height={size} role="img" aria-label="hand pose">
+    <svg viewBox="0 0 100 108" width={size} height={size * 1.08} role="img" aria-label="손 모양">
+      {/* wrist */}
+      <rect x="40" y="94" width="24" height="14" rx="6" fill={DOWN} stroke={LINE} strokeWidth="2" />
       {/* palm */}
-      <rect x="24" y="54" width="52" height="38" rx="14" fill={down} stroke={line} strokeWidth="2" />
+      <rect x="26" y="52" width="52" height="44" rx="16" fill={DOWN} stroke={LINE} strokeWidth="2" />
 
-      {/* thumb */}
-      <g transform="rotate(-38 24 74)">
+      {/* thumb (off lower-left, rotated) */}
+      <g transform="rotate(-42 26 72)">
         <rect
-          x={thumb ? 2 : 12}
-          y="66"
-          width={thumb ? 22 : 13}
-          height="15"
-          rx="7.5"
-          fill={thumb ? up : down}
-          stroke={line}
+          x={thumb ? 0 : 12}
+          y="64"
+          width={thumb ? 24 : 13}
+          height="16"
+          rx="8"
+          fill={thumb ? UP : DOWN}
+          stroke={LINE}
           strokeWidth="2"
         />
       </g>
 
-      {/* fingers */}
-      {cols.map((c, i) => {
-        const top = c.ext ? 10 + c.tall : 44;
-        const h = 58 - top;
-        return (
-          <rect
-            key={i}
-            x={c.x}
-            y={top}
-            width="10.5"
-            height={h}
-            rx="5.25"
-            fill={c.ext ? up : down}
-            stroke={line}
-            strokeWidth="2"
-          />
-        );
-      })}
+      {/* 4 fingers */}
+      {F.map((f, i) => (
+        <rect
+          key={i}
+          x={f.x - FW / 2}
+          y={f.top}
+          width={FW}
+          height={56 - f.top}
+          rx={FW / 2}
+          fill={f.ext ? UP : DOWN}
+          stroke={LINE}
+          strokeWidth="2"
+        />
+      ))}
     </svg>
   );
 }
